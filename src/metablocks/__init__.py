@@ -113,7 +113,6 @@ class TextoBlock( Block ):
 
 	def toXML( self, doc ):
 		text   = "\n".join(self.input)
-		print (repr(text))
 		node   = self._xml(doc, "Texto")
 		parser = texto.parser.Parser(self.path, document=doc, root=node)
 		parser.parse(text, offsets=False)
@@ -124,7 +123,14 @@ class PamlBlock( Block ):
 
 	def parseLines( self, lines ):
 		super(PamlBlock, self).parseLines(lines)
-		self.output.append(texto.process("\n".join(lines)))
+
+	def toXML( self, doc):
+		text   = "\n".join(self.input)
+		node   = self._xml(doc, "Paml")
+		parser = paml.engine.Parser()
+		parser._formatter = paml.engine.XMLFormatter(doc, node)
+		parser.parseString(text)
+		return node
 
 class Sugar2Block( Block ):
 
@@ -207,6 +213,8 @@ class Parser( object ):
 		self.block = None
 
 	def onLine( self, line ):
+		# NOTE: We need to make sure the input is unicode
+		line = line.decode("utf8")
 		m = RE_BLOCK.match(line)
 		if m:
 			name = m.group(1)
@@ -280,7 +288,7 @@ class Writer( object ):
 		if node: self.root.appendChild(node)
 
 	def onEnd( self ):
-		result = self.document.toprettyxml("\t")
+		result = self.document.toprettyxml("\t", encoding="utf8")
 		self.output.write(result)
 
 # -----------------------------------------------------------------------------
