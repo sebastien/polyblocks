@@ -1,0 +1,9 @@
+#!/usr/bin/env python
+from manyblocks import command
+if __name__ == "__main__":
+	import sys
+	# TODO: add exit code
+	command(sys.argv[1:])
+
+
+
