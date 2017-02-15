@@ -14,7 +14,7 @@ document.
 """
 
 DOM         = xml.dom.getDOMImplementation()
-RE_BLOCK    = re.compile("^@(\w+)+\s*(.*)$")
+RE_BLOCK    = re.compile("^@(\w+)+\s*('[^']+'|\"[^\"]+\"|[^\+]*)\s*(\+[\w\d_-]+\s*)*$")
 RE_CONTENT  = re.compile("^(\t(.*)|\s*)$")
 RE_COMMENT  = re.compile("^#.*$")
 DEFAULT_XSL = "block.xsl"
@@ -29,7 +29,7 @@ DEFAULT_XSL = "block.xsl"
 
 class Block( object ):
 
-	def __init__( self, name=None, data=None, path=None ):
+	def __init__( self, name=None, data=None, attributes=None, path=None ):
 		super(Block, self).__init__()
 		self.name   = name
 		self.data   = data
@@ -37,6 +37,7 @@ class Block( object ):
 		self.output = []
 		self.errors = []
 		self.path   = path
+		self.attributes = attributes
 		self.init()
 
 	def init( self ):
@@ -70,6 +71,18 @@ class Block( object ):
 		node = doc.createElementNS(None, name)
 		self._xmlAdd(doc, node, children)
 		return node
+
+	def _xmlAttrs( self, node, attributes=None ):
+		if attributes is None:
+			attributes = self.attributes
+		if isinstance(attributes, list) or isinstance(attributes, tuple):
+			for name, value in attributes:
+				node.setAttribute(name, "" + (value or ""))
+		else:
+			for name, value in attributes.items():
+				node.setAttribute(name, "" + (value or ""))
+		return node
+
 
 	def _xmlAdd( self, doc, node, child ):
 		if isinstance(child, dict):
@@ -116,7 +129,7 @@ class TextoBlock( Block ):
 		node   = self._xml(doc, "Texto")
 		parser = texto.parser.Parser(self.path, document=doc, root=node)
 		parser.parse(text, offsets=False)
-		return node
+		return self._xmlAttrs(node)
 
 
 class PamlBlock( Block ):
@@ -130,7 +143,7 @@ class PamlBlock( Block ):
 		parser = paml.engine.Parser()
 		parser._formatter = paml.engine.XMLFormatter(doc, node)
 		parser.parseString(text)
-		return node
+		return self._xmlAttrs(node)
 
 class Sugar2Block( Block ):
 
@@ -141,14 +154,24 @@ class Sugar2Block( Block ):
 		super(Sugar2Block, self).parseLines(lines)
 		text = "@feature sugar\n" + "\n".join(lines) + "\n"
 		self.output.append(sugar.process(text))
-		deps = deparse.core.Sugar().parseText(text)
-		res  = deparse.core.Resolver()
-		for t,n in deps.requires:
-			# NOTE: This might fail
-			self.imports.append([n, res.find(n)[n][0][1]])
+		module  = deparse.core.Sugar().parseText(text)
+		res     = deparse.core.Resolver()
+		# We resolve imported module
+		imported = []
+		for t,n in module.requires:
+			paths = res.find(n)[n]
+			if paths:
+				imported.append((n,paths[0][1]))
+		# and their dependencies
+		subimported = []
+		for t,n in deparse.core.list([_[1] for _ in imported]):
+			paths = res.find(n)[n]
+			if paths:
+				subimported.append((n,paths[0][1]))
+		self.imports = subimported + imported
 
 	def toXML( self, document ):
-		return self._xml(document, "Code",
+		return self._xmlAttrs(self._xml(document, "Code",
 			{"language":"sugar2"},
 			self._xml(document, "imports", [
 				self._xml(document, "module", dict(name=_[0], path=self.relpath(_[1]))) for _ in self.imports
@@ -156,7 +179,7 @@ class Sugar2Block( Block ):
 			self._xml(document, "source", document.createCDATASection(self.getInput())),
 			self._xml(document, "script", document.createCDATASection(self.getOutput())),
 			self._xml(document, "errors", document.createCDATASection(self.getErrors()))
-		)
+		))
 
 class PCSSBlock( Block ):
 
@@ -172,12 +195,14 @@ class PCSSBlock( Block ):
 class Parser( object ):
 
 	BLOCKS = dict(
-		title  = MetaBlock,
-		tags   = TagsBlock,
-		author = MetaBlock,
-		texto  = TextoBlock,
-		paml   = PamlBlock,
-		sugar2 = Sugar2Block,
+		title     = MetaBlock,
+		subtitle  = MetaBlock,
+		focus     = MetaBlock,
+		tags      = TagsBlock,
+		author    = MetaBlock,
+		texto     = TextoBlock,
+		paml      = PamlBlock,
+		sugar2    = Sugar2Block,
 	)
 
 	def __init__( self ):
@@ -185,6 +210,7 @@ class Parser( object ):
 		self.lines  = None
 		self.blocks = []
 		self.path   = None
+		self.line   = 0
 
 	def parseText( self, text, path=None ):
 		self.onStart(path)
@@ -199,27 +225,37 @@ class Parser( object ):
 				self.onLine(l[:-1])
 		self.onEnd()
 
-	def getBlock( self, name, data ):
-		block_class = self.BLOCKS[name]
-		return block_class(name, data, self.path)
+	def getBlock( self, name, data, attrs ):
+		block_class = self.BLOCKS.get(name)
+		if not block_class:
+			raise Exception("No block defined for tag: `@{0}` at line {1} in {2}".format(name, self.line, self.path))
+		else:
+			return block_class(name, data, attrs, self.path)
 
 	# =========================================================================
 	# PARSING EVENTS
 	# =========================================================================
 
 	def onStart( self, path=None ):
+		self.line  = 0
 		self.path  = path
 		self.lines = []
 		self.block = None
 
 	def onLine( self, line ):
 		# NOTE: We need to make sure the input is unicode
+		self.line += 1
 		line = line.decode("utf8")
 		m = RE_BLOCK.match(line)
 		if m:
-			name = m.group(1)
-			data = m.group(2)
-			block = self.getBlock(name, data)
+			name   = m.group(1)
+			data   = (m.group(2) or "").strip()
+			attrs  = m.group(3) or ""
+			if data and data[0] == data[-1] and data[0] in '"\'':
+				data = data[1:-1]
+			attrs = (_.strip().split("=",1) for _ in attrs.split() if _.strip())
+			attrs = [(_[0][1:], _[1] if len(_) > 1 else "true") for _ in attrs]
+			block = self.getBlock(name, data, attrs)
 			self._flushLines()
 			self.block = block
 			if block not in self.blocks:
