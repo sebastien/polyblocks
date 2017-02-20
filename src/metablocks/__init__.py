@@ -109,13 +109,13 @@ class MetaBlock( Block ):
 	def toXML( self, doc ):
 		return self._xml(doc, self.name, self.data)
 
-class TagsBlock( Block ):
+class TagsBlock( MetaBlock ):
 	def toXML( self, doc ):
 		return self._xml(doc, "tags", [
 			self._xml(doc, "tag", _.strip().lower()) for _ in self.data.split() if _.strip()
 		]) if self.data else None
 
-class TitleBlock( Block ):
+class TitleBlock( MetaBlock ):
 	def toXML( self, doc ):
 		return self._xml(doc, "title", self.data.strip()) if self.data else None
 
@@ -153,7 +153,12 @@ class Sugar2Block( Block ):
 	def parseLines( self, lines ):
 		super(Sugar2Block, self).parseLines(lines)
 		text = "@feature sugar\n" + "\n".join(lines) + "\n"
-		self.output.append(sugar.process(text))
+		options = ["-Llib/sjs"]
+		# We have a special handling for `.unit.block`: the unit
+		# testing is enabled.
+		if self.path.endswith(".unit.block"):
+			options.append("-Dtest")
+		self.output.append(sugar.process(text, 2, options))
 		module  = deparse.core.Sugar().parseText(text)
 		res     = deparse.core.Resolver()
 		# We resolve imported module
@@ -309,6 +314,8 @@ class Writer( object ):
 	def onStart( self, output, path=None ):
 		self.document = self.dom.createDocument(None, None, None)
 		self.root     = self.document.createElementNS(None, "Block")
+		self.meta     = self.document.createElementNS(None, "Meta") ; self.root.appendChild(self.meta)
+		self.content  = self.root
 		if self.xsl:
 			self.document.appendChild(
 				self.document.createProcessingInstruction("xml-stylesheet",
@@ -321,7 +328,14 @@ class Writer( object ):
 
 	def onBlock( self, block ):
 		node = block.toXML(self.document)
-		if node: self.root.appendChild(node)
+		if node:
+			self.getXMLRoot(block).appendChild(node)
+
+	def getXMLRoot( self, block ):
+		if isinstance(block, MetaBlock):
+			return self.meta
+		else:
+			return self.content
 
 	def onEnd( self ):
 		result = self.document.toprettyxml("\t", encoding="utf8")
