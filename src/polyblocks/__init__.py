@@ -157,7 +157,7 @@ class Sugar2Block( Block ):
 		# We have a special handling for `.unit.block`: the unit
 		# testing is enabled.
 		if self.path.endswith(".unit.block"):
-			options.append("-Dtest")
+			options.append("-Dtests")
 		self.output.append(sugar.process(text, 2, options))
 		module  = deparse.core.Sugar().parseText(text)
 		res     = deparse.core.Resolver()
