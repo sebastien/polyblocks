@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 from __future__ import print_function
 import io, os, sys, re, argparse, xml.dom
 
@@ -6,6 +6,7 @@ import texto, texto.parser
 import paml
 import sugar2.command as sugar
 import pythoniccss as pcss
+import hjson, json
 import deparse.core
 
 __doc__ = """
@@ -83,7 +84,6 @@ class Block( object ):
 				node.setAttribute(name, "" + (value or ""))
 		return node
 
-
 	def _xmlAdd( self, doc, node, child ):
 		if isinstance(child, dict):
 			for k,v in child.items():
@@ -106,20 +106,30 @@ class Block( object ):
 
 class MetaBlock( Block ):
 
+	description = "Adds meta-information"
+
 	def toXML( self, doc ):
 		return self._xml(doc, self.name, self.data)
 
 class TagsBlock( MetaBlock ):
+
+	description = "Block tags as a space-separated list"
+
 	def toXML( self, doc ):
 		return self._xml(doc, "tags", [
 			self._xml(doc, "tag", _.strip().lower()) for _ in self.data.split() if _.strip()
 		]) if self.data else None
 
 class TitleBlock( MetaBlock ):
+
+	description = "Sets the block title"
+
 	def toXML( self, doc ):
 		return self._xml(doc, "title", self.data.strip()) if self.data else None
 
 class TextoBlock( Block ):
+
+	description = "A texto markup block"
 
 	def parseLines( self, lines ):
 		super(TextoBlock, self).parseLines(lines)
@@ -134,18 +144,47 @@ class TextoBlock( Block ):
 
 class PamlBlock( Block ):
 
+	description = "A PAML block"
+
 	def parseLines( self, lines ):
 		super(PamlBlock, self).parseLines(lines)
 
-	def toXML( self, doc):
-		text   = "\n".join(self.input)
-		node   = self._xml(doc, "Paml")
+	def toXML( self, doc, name="Paml"):
+		text     = "\n".join(self.input)
+		node     = self._xml(doc, name)
+		fragment = doc.createElementNS(None, "fragment")
+		source   = doc.createElementNS(None, "source")
 		parser = paml.engine.Parser()
-		parser._formatter = paml.engine.XMLFormatter(doc, node)
+		parser._formatter = paml.engine.XMLFormatter(doc, fragment)
+		source.appendChild(doc.createTextNode("\n".join(self.input)))
 		parser.parseString(text)
+		node.appendChild(fragment)
+		node.appendChild(source)
 		return self._xmlAttrs(node)
 
+
+class JSXMLBlock( PamlBlock ):
+
+	description = "A PAML/JSXML block"
+
+	def parseLines( self, lines ):
+		super(JSXMLBlock, self).parseLines([
+			'<?xml version="1.0" encoding="UTF-8"?>',
+			'<?xml-stylesheet type="text/xsl" media="screen" href="lib/xsl/jsxml.xsl"?>',
+			'<jsx::Component(xmlns::jsx="https://github.com/sebastien/jsxml",xmlns::on="https://github.com/sebastien/jsxml/actions",render="delta")'
+		] + ["\t" + _ for _ in lines])
+
+	def toXML( self, doc ):
+		xml = super(JSXMLBlock,self).toXML(doc, "JSXML")
+		# xml.setAttributeNS("xmlns", "jsx", "https://github.com/sebastien/jsxml")
+		# xml.setAttributeNS("xmlns", "on",  "https://github.com/sebastien/jsxml/events")
+		# xml.setAttributeNS("xmlns", "x",   "https://github.com/sebastien/jsxml/composition")
+		return xml
+
+
 class Sugar2Block( Block ):
+
+	description = "A Sugar 2 block"
 
 	def init( self ):
 		self.imports = []
@@ -186,7 +225,24 @@ class Sugar2Block( Block ):
 			self._xml(document, "errors", document.createCDATASection(self.getErrors()))
 		))
 
+class ComponentBlock( Block ):
+
+	description = "An ff-libs-2 component"
+
+	def parseLines( self, lines ):
+		lines       = ["{"] +  ["\t" + _ for _ in lines] + ["}"]
+		text        = "\n".join(lines)
+		self.output = hjson.loads(text)
+
+	def toXML( self, doc ):
+		node  = self._xml(doc, "Component")
+		for k,v in self.output.items():
+			node.appendChild(self._xmlAttrs(self._xml(doc, "data"), {"name":k, "value":v if type(v) in (str,unicode) else json.dumps(v)}))
+		return self._xmlAttrs(node, {"type":self.data})
+
 class PCSSBlock( Block ):
+
+	description = "A PCSS block"
 
 	def parseLines( self, lines ):
 		self.output.append(pcss.process("\n".join(lines)))
@@ -204,9 +260,11 @@ class Parser( object ):
 		subtitle  = MetaBlock,
 		focus     = MetaBlock,
 		tags      = TagsBlock,
+		component = ComponentBlock,
 		author    = MetaBlock,
 		texto     = TextoBlock,
 		paml      = PamlBlock,
+		jsxml     = JSXMLBlock,
 		sugar2    = Sugar2Block,
 	)
 
@@ -365,7 +423,7 @@ def process( text, path=None, xsl=DEFAULT_XSL ):
 #
 # -----------------------------------------------------------------------------
 
-def command( args, name=None ):
+def command( args, name="polyblocks" ):
 	if type(args) not in (type([]), type(())): args = [args]
 	oparser = argparse.ArgumentParser(
 		prog        = name or os.path.basename(__file__.split(".")[0]),
@@ -373,16 +431,22 @@ def command( args, name=None ):
 	)
 	# TODO: Rework command lines arguments, we want something that follows
 	# common usage patterns.
-	oparser.add_argument("files", metavar="FILE", type=str, nargs='+',
+	oparser.add_argument("files", metavar="FILE", type=str, nargs='*',
 			help='The .block files to process')
+	oparser.add_argument("--list", action="store_true",
+			help='List the available block types')
 	# We create the parse and register the options
 	args = oparser.parse_args(args=args)
 	out  = sys.stdout
-	parser = Parser()
-	writer = Writer()
-	for p in args.files:
-		parser.parsePath(p)
-	writer.write(parser, sys.stdout)
+	if args.list:
+		for key in sorted(Parser.BLOCKS):
+			out.write("@{0:10s} {1}\n".format(key, Parser.BLOCKS[key].description))
+	elif args.files:
+		parser = Parser()
+		writer = Writer()
+		for p in args.files:
+			parser.parsePath(p)
+		writer.write(parser, sys.stdout)
 
 if __name__ == "__main__":
 	import sys
