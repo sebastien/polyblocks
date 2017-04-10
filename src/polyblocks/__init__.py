@@ -92,7 +92,7 @@ class Block( object ):
 			node.appendChild(doc.createTextNode(child))
 		elif isinstance(child, list) or isinstance(child, tuple):
 			[self._xmlAdd(doc, node, _) for _ in child]
-		else:
+		elif child:
 			node.appendChild(child)
 		return node
 
@@ -245,7 +245,18 @@ class PCSSBlock( Block ):
 	description = "A PCSS block"
 
 	def parseLines( self, lines ):
-		self.output.append(pcss.process("\n".join(lines)))
+		super(PCSSBlock, self).parseLines(lines)
+		res = pcss.process("\n".join(lines) + "\n")
+		self.output.append(res)
+
+	def toXML( self, document ):
+		errors = self.getErrors ()
+		return self._xmlAttrs(self._xml(document, "PCSS",
+			{"language":"pcss"},
+			self._xml(document, "source", document.createCDATASection(self.getInput())),
+			self._xml(document, "script", document.createCDATASection(self.getOutput())),
+			self._xml(document, "errors", document.createCDATASection(errors)) if errors else None
+		))
 
 # -----------------------------------------------------------------------------
 #
@@ -264,6 +275,7 @@ class Parser( object ):
 		author    = MetaBlock,
 		texto     = TextoBlock,
 		paml      = PamlBlock,
+		pcss      = PCSSBlock,
 		jsxml     = JSXMLBlock,
 		sugar2    = Sugar2Block,
 	)
