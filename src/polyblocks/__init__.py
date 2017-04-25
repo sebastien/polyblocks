@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import print_function
-import io, os, sys, re, argparse, xml.dom
+import io, os, sys, re, argparse, xml.dom, time, pickle, hashlib, stat
 
 import texto, texto.parser
 import paml
-import sugar2.command as sugar
+try:
+	import sugar2.command as sugar
+except ImportError as e:
+	pass
 import pythoniccss as pcss
 import hjson, json
 import deparse.core
@@ -21,6 +24,39 @@ RE_COMMENT  = re.compile("^#.*$")
 DEFAULT_XSL = "block.xsl"
 
 # TODO: Capture stderr from process
+
+def parseAttributes( text ):
+	"""A simple parser that extract (key,value) from a string like
+	`KEY=VALUE,KEY="VALUE\"VALUE",KEY='VALUE\'VALUE'`"""
+	offset = 0
+	result = []
+	while offset < len(text):
+		equal  = text.find("=", offset)
+		assert equal >= 0, "Include subsitution without value: {0}".format(text)
+		name   = text[offset:equal]
+		offset = equal + 1
+		if offset == len(text):
+			value = ""
+		elif text[offset] in  '\'"':
+			# We test for quotes and escape it
+			quote = text[offset]
+			end_quote = text.find(quote, offset + 1)
+			while end_quote >= 0 and text[end_quote - 1] == "\\":
+				end_quote = text.find(quote, end_quote + 1)
+			value  = text[offset+1:end_quote].replace("\\" + quote, quote)
+			offset = end_quote + 1
+			if offset < len(text) and text[offset] == ",": offset += 1
+		else:
+			# Or we look for a comma
+			comma  = text.find(",", offset)
+			if comma < 0:
+				value  = text[offset:]
+				offset = len(text)
+			else:
+				value  = text[offset:comma]
+				offset = comma + 1
+		result.append((name.strip(), value))
+	return result
 
 # -----------------------------------------------------------------------------
 #
@@ -127,6 +163,13 @@ class TitleBlock( MetaBlock ):
 	def toXML( self, doc ):
 		return self._xml(doc, "title", self.data.strip()) if self.data else None
 
+class HeadingBlock( Block ):
+
+	description = "Creates a new section/subsection"
+
+	def toXML( self, doc ):
+		return self._xml(doc, "Heading", dict(depth=self.name[1:]), self.data.strip()) if self.data else None
+
 class ImportBlock( MetaBlock ):
 
 	description = "Imports files/modules"
@@ -160,8 +203,17 @@ class PamlBlock( Block ):
 
 	description = "A PAML block"
 
+	def init( self ):
+		self.title = None
+		self.attrs = {}
+
 	def parseLines( self, lines ):
 		super(PamlBlock, self).parseLines(lines)
+		title_attrs = self.data.split("+",1)
+		self.title = title_attrs[0].strip()
+		self.attrs = {}
+		if len(title_attrs) == 2:
+			self.attrs.merge(parseAttributes(title_attrs[1]))
 
 	def toXML( self, doc, name="Paml"):
 		text     = "\n".join(self.input)
@@ -169,13 +221,16 @@ class PamlBlock( Block ):
 		fragment = doc.createElementNS(None, "fragment")
 		source   = doc.createElementNS(None, "source")
 		parser = paml.engine.Parser()
+		if self.title:
+			node.setAttribute("title", self.title)
+		for k,v in self.attrs.items():
+			node.setAttribute(k, v)
 		parser._formatter = paml.engine.XMLFormatter(doc, fragment)
 		source.appendChild(doc.createTextNode("\n".join(self.input)))
 		parser.parseString(text)
 		node.appendChild(fragment)
 		node.appendChild(source)
 		return self._xmlAttrs(node)
-
 
 class JSXMLBlock( PamlBlock ):
 
@@ -283,6 +338,12 @@ class Parser( object ):
 	BLOCKS = {
 		"title"     : MetaBlock,
 		"subtitle"  : MetaBlock,
+		"h1"        : HeadingBlock,
+		"h2"        : HeadingBlock,
+		"h3"        : HeadingBlock,
+		"h4"        : HeadingBlock,
+		"h5"        : HeadingBlock,
+		"h6"        : HeadingBlock,
 		"focus"     : MetaBlock,
 		"tags"      : TagsBlock,
 		"component" : ComponentBlock,
@@ -301,6 +362,7 @@ class Parser( object ):
 		self.blocks = []
 		self.path   = None
 		self.line   = 0
+		self.cache  = Cache.Ensure()
 
 	def parseText( self, text, path=None ):
 		self.onStart(path)
@@ -369,7 +431,14 @@ class Parser( object ):
 
 	def _flushLines( self ):
 		if self.block:
-			self.block.parseLines(self.lines)
+			text = u"\n".join(self.lines)
+			if self.cache.has(text):
+				i = self.blocks.index(self.block)
+				b = self.cache.get(text)
+				self.blocks[i] = b
+			else:
+				self.block.parseLines(self.lines)
+				self.cache.set(text, self.block)
 			self.lines = []
 			self.block = None
 
@@ -425,6 +494,61 @@ class Writer( object ):
 	def onEnd( self ):
 		result = self.document.toprettyxml("\t", encoding="utf8")
 		self.output.write(result)
+
+class Cache:
+	"""A simple self-cleaning cache."""
+
+	CACHE = None
+
+	@classmethod
+	def Ensure(cls):
+		if not cls.CACHE:
+			return Cache(os.path.expanduser("~/.cache/polyblocks"))
+
+	def __init__( self, path ):
+		self.root = path
+		assert path
+		if not os.path.exists(path):
+			os.makedirs(path)
+
+	def key( self, text ):
+		return self.hash(text)
+
+	def hash( self, text ):
+		return hashlib.sha256(text.encode("utf8")).hexdigest()
+
+	def has( self, text ):
+		if not text: return False
+		key = self.key(text)
+		return key and os.path.exists(self._path(key))
+
+	def get( self, text ):
+		if not text: return None
+		key = self.key(text)
+		if self.has(text):
+			with open(self._path(key), "r") as f:
+				return pickle.load(f)
+		return None
+
+	def set( self, text, value ):
+		if not text: return text
+		self.clean()
+		key = self.key(text)
+		with open(self._path(key), "w") as f:
+			pickle.dump(value, f)
+		return value
+
+	def clean( self ):
+		now = time.time()
+		for _ in list(os.listdir(self.root)):
+			p = os.path.join(self.root, _)
+			s = os.stat(p)[stat.ST_MTIME]
+			if now - s > 60 * 60 * 24:
+				os.unlink(p)
+
+	def _path( self, key ):
+		assert key
+		return os.path.join(self.root, key + ".cache")
 
 # -----------------------------------------------------------------------------
 #
