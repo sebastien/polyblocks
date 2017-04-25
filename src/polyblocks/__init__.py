@@ -127,6 +127,20 @@ class TitleBlock( MetaBlock ):
 	def toXML( self, doc ):
 		return self._xml(doc, "title", self.data.strip()) if self.data else None
 
+class ImportBlock( MetaBlock ):
+
+	description = "Imports files/modules"
+
+	def toXML( self, doc ):
+		return self._xml(doc, "import", [
+			self._xml(doc, "module", dict(
+				type=_.strip().rsplit(".",1)[-1],
+				basename=os.path.basename(_),
+				name=os.path.basename(_).rsplit(".",1)[0]
+			), _.strip().lower()) for _ in self.data.split() if _.strip()
+		]) if self.data else None
+
+
 class TextoBlock( Block ):
 
 	description = "A texto markup block"
@@ -266,19 +280,20 @@ class PCSSBlock( Block ):
 
 class Parser( object ):
 
-	BLOCKS = dict(
-		title     = MetaBlock,
-		subtitle  = MetaBlock,
-		focus     = MetaBlock,
-		tags      = TagsBlock,
-		component = ComponentBlock,
-		author    = MetaBlock,
-		texto     = TextoBlock,
-		paml      = PamlBlock,
-		pcss      = PCSSBlock,
-		jsxml     = JSXMLBlock,
-		sugar2    = Sugar2Block,
-	)
+	BLOCKS = {
+		"title"     : MetaBlock,
+		"subtitle"  : MetaBlock,
+		"focus"     : MetaBlock,
+		"tags"      : TagsBlock,
+		"component" : ComponentBlock,
+		"author"    : MetaBlock,
+		"texto"     : TextoBlock,
+		"paml"      : PamlBlock,
+		"pcss"      : PCSSBlock,
+		"jsxml"     : JSXMLBlock,
+		"sugar2"    : Sugar2Block,
+		"import"    : ImportBlock,
+	}
 
 	def __init__( self ):
 		self.block  = None
