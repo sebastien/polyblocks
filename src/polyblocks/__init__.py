@@ -432,13 +432,13 @@ class Parser( object ):
 	def _flushLines( self ):
 		if self.block:
 			text = u"\n".join(self.lines)
-			if self.cache.has(text):
+			if self.cache.has(text, self.block):
 				i = self.blocks.index(self.block)
-				b = self.cache.get(text)
+				b = self.cache.get(text, self.block)
 				self.blocks[i] = b
 			else:
 				self.block.parseLines(self.lines)
-				self.cache.set(text, self.block)
+				self.cache.set(text, self.block, self.block)
 			self.lines = []
 			self.block = None
 
@@ -511,29 +511,30 @@ class Cache:
 		if not os.path.exists(path):
 			os.makedirs(path)
 
-	def key( self, text ):
+	def key( self, text, block ):
+		text = json.dumps(block.name) + json.dumps(block.attributes) + text
 		return self.hash(text)
 
 	def hash( self, text ):
 		return hashlib.sha256(text.encode("utf8")).hexdigest()
 
-	def has( self, text ):
+	def has( self, text, block ):
 		if not text: return False
-		key = self.key(text)
+		key = self.key(text, block)
 		return key and os.path.exists(self._path(key))
 
-	def get( self, text ):
+	def get( self, text, block ):
 		if not text: return None
-		key = self.key(text)
-		if self.has(text):
+		key = self.key(text, block)
+		if self.has(text, block):
 			with open(self._path(key), "r") as f:
 				return pickle.load(f)
 		return None
 
-	def set( self, text, value ):
+	def set( self, text, block, value ):
 		if not text: return text
 		self.clean()
-		key = self.key(text)
+		key = self.key(text, block)
 		with open(self._path(key), "w") as f:
 			pickle.dump(value, f)
 		return value
