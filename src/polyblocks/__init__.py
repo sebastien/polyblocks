@@ -66,6 +66,8 @@ def parseAttributes( text ):
 
 class Block( object ):
 
+	KEY = ["name", "data", "attributes", "path"]
+
 	def __init__( self, name=None, data=None, attributes=None, path=None ):
 		super(Block, self).__init__()
 		self.name   = name
@@ -76,6 +78,9 @@ class Block( object ):
 		self.path   = path
 		self.attributes = attributes
 		self.init()
+
+	def key( self ):
+		return json.dumps([getattr(self, _) for _ in self.KEY])
 
 	def init( self ):
 		pass
@@ -260,8 +265,10 @@ class Sugar2Block( Block ):
 
 	def parseLines( self, lines ):
 		super(Sugar2Block, self).parseLines(lines)
+		sg_backend = os.environ["SUGAR_BACKEND"] if "SUGAR_BACKEND" in os.environ else "es"
+		sg_modules = os.environ["SUGAR_MODULES"] if "SUGAR_MODULES" in os.environ else "umd"
 		text = "@feature sugar\n" + "\n".join(lines) + "\n"
-		options = ["-Llib/sjs"]
+		options = ["-Llib/sjs", "-l" + sg_backend, "-D" + sg_modules]
 		# We have a special handling for `.unit.block`: the unit
 		# testing is enabled.
 		if self.path.endswith(".unit.block"):
@@ -438,7 +445,8 @@ class Parser( object ):
 				self.blocks[i] = b
 			else:
 				self.block.parseLines(self.lines)
-				self.cache.set(text, self.block, self.block)
+				if text:
+					self.cache.set(text, self.block, self.block)
 			self.lines = []
 			self.block = None
 
@@ -512,7 +520,8 @@ class Cache:
 			os.makedirs(path)
 
 	def key( self, text, block ):
-		text = json.dumps(block.name) + json.dumps(block.attributes) + text
+		"""Gets the key for the given text as processed by the given block."""
+		text = block.__class__.__name__ + block.key() + (text or "")
 		return self.hash(text)
 
 	def hash( self, text ):
