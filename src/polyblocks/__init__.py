@@ -1,21 +1,38 @@
 #!/usr/bin/env python3
 from __future__ import print_function
-import io, os, sys, re, argparse, xml.dom, time, pickle, hashlib, stat
-
-import texto, texto.parser
-import paml
-try:
-	import sugar2.command as sugar
-except ImportError as e:
-	pass
-import pythoniccss as pcss
-import hjson, json
-import deparse.core
+import io, os, sys, re, argparse, xml.dom, time, pickle, hashlib, stat, json
 
 __doc__ = """
 Blocks are files that embed multiple languages together in one interactive
 document.
 """
+
+# --- OPTIONAL IMPORTS --------------------------------------------------------
+
+try:
+	import texto, texto.parser
+except ImportError as e:
+	texto = None
+
+try:
+	import paml
+except ImportError as e:
+	paml = None
+
+try:
+	import sugar2.command as sugar
+except ImportError as e:
+	sugar = None
+
+try:
+	import pythoniccss as pcss
+except ImportError as e:
+	pcss = None
+
+try:
+	import deparse.core
+except ImportError as e:
+	deparse = None
 
 DOM         = xml.dom.getDOMImplementation()
 RE_BLOCK    = re.compile("^@(\w+)+\s*('[^']+'|\"[^\"]+\"|[^\+]*)\s*(\+[\w\d_-]+\s*)*$")
@@ -67,9 +84,11 @@ def parseAttributes( text ):
 class Block( object ):
 
 	KEY = ["name", "data", "attributes", "path"]
+	IDS = 0
 
 	def __init__( self, name=None, data=None, attributes=None, path=None ):
 		super(Block, self).__init__()
+		self.id     = self.__class__.IDS ; self.__class__.IDS += 1
 		self.name   = name
 		self.data   = data
 		self.input  = []
@@ -185,7 +204,7 @@ class ImportBlock( MetaBlock ):
 				type=_.strip().rsplit(".",1)[-1],
 				basename=os.path.basename(_),
 				name=os.path.basename(_).rsplit(".",1)[0]
-			), _.strip().lower()) for _ in self.data.split() if _.strip()
+			), _.strip()) for _ in self.data.split() if _.strip()
 		]) if self.data else None
 
 
@@ -253,6 +272,19 @@ class JSXMLBlock( PamlBlock ):
 		# xml.setAttributeNS("xmlns", "jsx", "https://github.com/sebastien/jsxml")
 		# xml.setAttributeNS("xmlns", "on",  "https://github.com/sebastien/jsxml/events")
 		# xml.setAttributeNS("xmlns", "x",   "https://github.com/sebastien/jsxml/composition")
+		return xml
+
+class PAMLXMLBlock( PamlBlock ):
+
+	description = "A PAML/XML block"
+
+	def parseLines( self, lines ):
+		super(PAMLXMLBlock, self).parseLines([
+			'<?xml version="1.0" encoding="UTF-8"?>',
+		] + ["\t" + _ for _ in lines])
+
+	def toXML( self, doc ):
+		xml = super(PAMLXMLBlock,self).toXML(doc, "XML")
 		return xml
 
 
@@ -334,6 +366,19 @@ class PCSSBlock( Block ):
 			self._xml(document, "errors", document.createCDATASection(errors)) if errors else None
 		))
 
+class ShaderBlock( Block ):
+
+	description = "A WebGL shader block"
+
+	def parseLines( self, lines ):
+		text        = "\n".join(lines)
+		self.output = text
+
+	def toXML( self, doc ):
+		node  = self._xml(doc, "Shader")
+		node.appendChild(self._xml(doc, "source", doc.createCDATASection(self.output)))
+		return self._xmlAttrs(node, {"name":self.data or "shader-{0}".format(self.id)})
+
 # -----------------------------------------------------------------------------
 #
 # PARSER
@@ -354,11 +399,13 @@ class Parser( object ):
 		"focus"     : MetaBlock,
 		"tags"      : TagsBlock,
 		"component" : ComponentBlock,
+		"shader"    : ShaderBlock,
 		"author"    : MetaBlock,
 		"texto"     : TextoBlock,
 		"paml"      : PamlBlock,
 		"pcss"      : PCSSBlock,
 		"jsxml"     : JSXMLBlock,
+		"pamxml"    : PAMLXMLBlock,
 		"sugar2"    : Sugar2Block,
 		"import"    : ImportBlock,
 	}
