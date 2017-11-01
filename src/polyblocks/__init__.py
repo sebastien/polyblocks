@@ -34,11 +34,20 @@ try:
 except ImportError as e:
 	deparse = None
 
+try:
+	import hjson
+except ImportError as e:
+	hjson = None
+
 DOM         = xml.dom.getDOMImplementation()
 RE_BLOCK    = re.compile("^@(\w+)+\s*('[^']+'|\"[^\"]+\"|[^\+]*)\s*(\+[\w\d_-]+\s*)*$")
 RE_CONTENT  = re.compile("^(\t(.*)|\s*)$")
 RE_COMMENT  = re.compile("^#.*$")
 DEFAULT_XSL = "block.xsl"
+VERSION_KEY = "{0}-{1}-{2}".format(sys.version_info.major, sys.version_info.minor, sys.version_info.micro)
+
+if sys.version_info.major > 2:
+	unicode = str
 
 # TODO: Capture stderr from process
 
@@ -338,9 +347,17 @@ class ComponentBlock( Block ):
 	description = "An ff-libs-2 component"
 
 	def parseLines( self, lines ):
-		lines       = ["{"] +  ["\t" + _ for _ in lines] + ["}"]
-		text        = "\n".join(lines)
-		self.output = hjson.loads(text)
+		lines = ["\t" + _ for _ in lines if _.strip()]
+		if lines:
+			if hjson:
+				text        = "{" + "\n".join(lines) + "}"
+				self.output = hjson.loads(text)
+			else:
+				raise Exception("{0} requires the `hjson` module to parse configuration".format(self.__class__.__name__))
+		else:
+			self.output = {}
+
+
 
 	def toXML( self, doc ):
 		node  = self._xml(doc, "Component")
@@ -451,7 +468,7 @@ class Parser( object ):
 	def onLine( self, line ):
 		# NOTE: We need to make sure the input is unicode
 		self.line += 1
-		line = line.decode("utf8")
+		line = line.decode("utf8") if isinstance(line, bytes) else line
 		m = RE_BLOCK.match(line)
 		if m:
 			name   = m.group(1)
@@ -536,6 +553,7 @@ class Writer( object ):
 		self.path     = path
 
 	def onBlock( self, block ):
+		assert block
 		node = block.toXML(self.document)
 		if node:
 			self.getXMLRoot(block).appendChild(node)
@@ -547,7 +565,7 @@ class Writer( object ):
 			return self.content
 
 	def onEnd( self ):
-		result = self.document.toprettyxml("\t", encoding="utf8")
+		result = self.document.toprettyxml("\t")
 		self.output.write(result)
 
 class Cache:
@@ -568,7 +586,7 @@ class Cache:
 
 	def key( self, text, block ):
 		"""Gets the key for the given text as processed by the given block."""
-		text = block.__class__.__name__ + block.key() + (text or "")
+		text = block.__class__.__name__ + VERSION_KEY + (text or "")
 		return self.hash(text)
 
 	def hash( self, text ):
@@ -583,15 +601,19 @@ class Cache:
 		if not text: return None
 		key = self.key(text, block)
 		if self.has(text, block):
-			with open(self._path(key), "r") as f:
-				return pickle.load(f)
+			with open(self._path(key), "rb") as f:
+				try:
+					return pickle.load(f)
+				except ValueError as e:
+					# We might get an unsupported pickle protocol: 3
+					return
 		return None
 
 	def set( self, text, block, value ):
 		if not text: return text
 		self.clean()
 		key = self.key(text, block)
-		with open(self._path(key), "w") as f:
+		with open(self._path(key), "wb") as f:
 			pickle.dump(value, f)
 		return value
 
