@@ -34,11 +34,21 @@ try:
 except ImportError as e:
 	deparse = None
 
+try:
+	import hjson
+except ImportError as e:
+	hjson = None
+
 DOM         = xml.dom.getDOMImplementation()
 RE_BLOCK    = re.compile("^@(\w+)+\s*('[^']+'|\"[^\"]+\"|[^\+]*)\s*(\+[\w\d_-]+\s*)*$")
 RE_CONTENT  = re.compile("^(\t(.*)|\s*)$")
 RE_COMMENT  = re.compile("^#.*$")
 DEFAULT_XSL = "block.xsl"
+VERSION_KEY = "{0}-{1}-{2}".format(sys.version_info.major, sys.version_info.minor, sys.version_info.micro)
+IS_PYTHON3  = sys.version_info.major > 2
+
+if IS_PYTHON3:
+	unicode = str
 
 # TODO: Capture stderr from process
 
@@ -166,14 +176,14 @@ class Block( object ):
 
 class MetaBlock( Block ):
 
-	description = "Adds meta-information"
+	description = "Meta information [abstract]"
 
 	def toXML( self, doc ):
 		return self._xml(doc, self.name, self.data)
 
 class TagsBlock( MetaBlock ):
 
-	description = "Block tags as a space-separated list"
+	description = "Tags (space-separated)"
 
 	def toXML( self, doc ):
 		return self._xml(doc, "tags", [
@@ -182,14 +192,14 @@ class TagsBlock( MetaBlock ):
 
 class TitleBlock( MetaBlock ):
 
-	description = "Sets the block title"
+	description = "Block title"
 
 	def toXML( self, doc ):
 		return self._xml(doc, "title", self.data.strip()) if self.data else None
 
 class HeadingBlock( Block ):
 
-	description = "Creates a new section/subsection"
+	description = "Heading"
 
 	def toXML( self, doc ):
 		return self._xml(doc, "Heading", dict(depth=self.name[1:]), self.data.strip()) if self.data else None
@@ -210,7 +220,7 @@ class ImportBlock( MetaBlock ):
 
 class TextoBlock( Block ):
 
-	description = "A texto markup block"
+	description = "Texto markup (Markdown-like)"
 
 	def parseLines( self, lines ):
 		super(TextoBlock, self).parseLines(lines)
@@ -225,7 +235,7 @@ class TextoBlock( Block ):
 
 class PamlBlock( Block ):
 
-	description = "A PAML block"
+	description = "PAML HTML/XML markup"
 
 	def init( self ):
 		self.title = None
@@ -258,7 +268,7 @@ class PamlBlock( Block ):
 
 class JSXMLBlock( PamlBlock ):
 
-	description = "A PAML/JSXML block"
+	description = "PAML/JSXML block"
 
 	def parseLines( self, lines ):
 		super(JSXMLBlock, self).parseLines([
@@ -276,7 +286,7 @@ class JSXMLBlock( PamlBlock ):
 
 class PAMLXMLBlock( PamlBlock ):
 
-	description = "A PAML/XML block"
+	description = "PAML/XML block"
 
 	def parseLines( self, lines ):
 		super(PAMLXMLBlock, self).parseLines([
@@ -290,7 +300,7 @@ class PAMLXMLBlock( PamlBlock ):
 
 class Sugar2Block( Block ):
 
-	description = "A Sugar 2 block"
+	description = "Sugar2 (compiled to ES/JS)"
 
 	def init( self ):
 		self.imports = []
@@ -335,12 +345,20 @@ class Sugar2Block( Block ):
 
 class ComponentBlock( Block ):
 
-	description = "An ff-libs-2 component"
+	description = "FF-Libs 2 UI Component"
 
 	def parseLines( self, lines ):
-		lines       = ["{"] +  ["\t" + _ for _ in lines] + ["}"]
-		text        = "\n".join(lines)
-		self.output = hjson.loads(text)
+		lines = ["\t" + _ for _ in lines if _.strip()]
+		if lines:
+			if hjson:
+				text        = "{" + "\n".join(lines) + "}"
+				self.output = hjson.loads(text)
+			else:
+				raise Exception("{0} requires the `hjson` module to parse configuration".format(self.__class__.__name__))
+		else:
+			self.output = {}
+
+
 
 	def toXML( self, doc ):
 		node  = self._xml(doc, "Component")
@@ -350,7 +368,7 @@ class ComponentBlock( Block ):
 
 class PCSSBlock( Block ):
 
-	description = "A PCSS block"
+	description = "PCSS block (compiled to CSS)"
 
 	def parseLines( self, lines ):
 		super(PCSSBlock, self).parseLines(lines)
@@ -368,7 +386,7 @@ class PCSSBlock( Block ):
 
 class ShaderBlock( Block ):
 
-	description = "A WebGL shader block"
+	description = "WebGL shader (raw text)"
 
 	def parseLines( self, lines ):
 		text        = "\n".join(lines)
@@ -451,7 +469,7 @@ class Parser( object ):
 	def onLine( self, line ):
 		# NOTE: We need to make sure the input is unicode
 		self.line += 1
-		line = line.decode("utf8")
+		line = line.decode("utf8") if isinstance(line, bytes) else line
 		m = RE_BLOCK.match(line)
 		if m:
 			name   = m.group(1)
@@ -536,6 +554,7 @@ class Writer( object ):
 		self.path     = path
 
 	def onBlock( self, block ):
+		assert block
 		node = block.toXML(self.document)
 		if node:
 			self.getXMLRoot(block).appendChild(node)
@@ -547,8 +566,11 @@ class Writer( object ):
 			return self.content
 
 	def onEnd( self ):
-		result = self.document.toprettyxml("\t", encoding="utf8")
-		self.output.write(result)
+		result = self.document.toprettyxml("\t")
+		if IS_PYTHON3:
+			self.output.write(result)
+		else:
+			self.output.write(result.encode("utf8"))
 
 class Cache:
 	"""A simple self-cleaning cache."""
@@ -568,7 +590,7 @@ class Cache:
 
 	def key( self, text, block ):
 		"""Gets the key for the given text as processed by the given block."""
-		text = block.__class__.__name__ + block.key() + (text or "")
+		text = block.__class__.__name__ + VERSION_KEY + (text or "")
 		return self.hash(text)
 
 	def hash( self, text ):
@@ -583,15 +605,19 @@ class Cache:
 		if not text: return None
 		key = self.key(text, block)
 		if self.has(text, block):
-			with open(self._path(key), "r") as f:
-				return pickle.load(f)
+			with open(self._path(key), "rb") as f:
+				try:
+					return pickle.load(f)
+				except ValueError as e:
+					# We might get an unsupported pickle protocol: 3
+					return
 		return None
 
 	def set( self, text, block, value ):
 		if not text: return text
 		self.clean()
 		key = self.key(text, block)
-		with open(self._path(key), "w") as f:
+		with open(self._path(key), "wb") as f:
 			pickle.dump(value, f)
 		return value
 
