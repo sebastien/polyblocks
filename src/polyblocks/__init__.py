@@ -45,8 +45,9 @@ RE_CONTENT  = re.compile("^(\t(.*)|\s*)$")
 RE_COMMENT  = re.compile("^#.*$")
 DEFAULT_XSL = "block.xsl"
 VERSION_KEY = "{0}-{1}-{2}".format(sys.version_info.major, sys.version_info.minor, sys.version_info.micro)
+IS_PYTHON3  = sys.version_info.major > 2
 
-if sys.version_info.major > 2:
+if IS_PYTHON3:
 	unicode = str
 
 # TODO: Capture stderr from process
@@ -175,14 +176,14 @@ class Block( object ):
 
 class MetaBlock( Block ):
 
-	description = "Adds meta-information"
+	description = "Meta information [abstract]"
 
 	def toXML( self, doc ):
 		return self._xml(doc, self.name, self.data)
 
 class TagsBlock( MetaBlock ):
 
-	description = "Block tags as a space-separated list"
+	description = "Tags (space-separated)"
 
 	def toXML( self, doc ):
 		return self._xml(doc, "tags", [
@@ -191,14 +192,14 @@ class TagsBlock( MetaBlock ):
 
 class TitleBlock( MetaBlock ):
 
-	description = "Sets the block title"
+	description = "Block title"
 
 	def toXML( self, doc ):
 		return self._xml(doc, "title", self.data.strip()) if self.data else None
 
 class HeadingBlock( Block ):
 
-	description = "Creates a new section/subsection"
+	description = "Heading"
 
 	def toXML( self, doc ):
 		return self._xml(doc, "Heading", dict(depth=self.name[1:]), self.data.strip()) if self.data else None
@@ -219,7 +220,7 @@ class ImportBlock( MetaBlock ):
 
 class TextoBlock( Block ):
 
-	description = "A texto markup block"
+	description = "Texto markup (Markdown-like)"
 
 	def parseLines( self, lines ):
 		super(TextoBlock, self).parseLines(lines)
@@ -234,7 +235,7 @@ class TextoBlock( Block ):
 
 class PamlBlock( Block ):
 
-	description = "A PAML block"
+	description = "PAML HTML/XML markup"
 
 	def init( self ):
 		self.title = None
@@ -267,7 +268,7 @@ class PamlBlock( Block ):
 
 class JSXMLBlock( PamlBlock ):
 
-	description = "A PAML/JSXML block"
+	description = "PAML/JSXML block"
 
 	def parseLines( self, lines ):
 		super(JSXMLBlock, self).parseLines([
@@ -285,7 +286,7 @@ class JSXMLBlock( PamlBlock ):
 
 class PAMLXMLBlock( PamlBlock ):
 
-	description = "A PAML/XML block"
+	description = "PAML/XML block"
 
 	def parseLines( self, lines ):
 		super(PAMLXMLBlock, self).parseLines([
@@ -299,7 +300,7 @@ class PAMLXMLBlock( PamlBlock ):
 
 class Sugar2Block( Block ):
 
-	description = "A Sugar 2 block"
+	description = "Sugar2 (compiled to ES/JS)"
 
 	def init( self ):
 		self.imports = []
@@ -344,7 +345,7 @@ class Sugar2Block( Block ):
 
 class ComponentBlock( Block ):
 
-	description = "An ff-libs-2 component"
+	description = "FF-Libs 2 UI Component"
 
 	def parseLines( self, lines ):
 		lines = ["\t" + _ for _ in lines if _.strip()]
@@ -367,7 +368,7 @@ class ComponentBlock( Block ):
 
 class PCSSBlock( Block ):
 
-	description = "A PCSS block"
+	description = "PCSS block (compiled to CSS)"
 
 	def parseLines( self, lines ):
 		super(PCSSBlock, self).parseLines(lines)
@@ -385,7 +386,7 @@ class PCSSBlock( Block ):
 
 class ShaderBlock( Block ):
 
-	description = "A WebGL shader block"
+	description = "WebGL shader (raw text)"
 
 	def parseLines( self, lines ):
 		text        = "\n".join(lines)
@@ -566,7 +567,10 @@ class Writer( object ):
 
 	def onEnd( self ):
 		result = self.document.toprettyxml("\t")
-		self.output.write(result)
+		if IS_PYTHON3:
+			self.output.write(result)
+		else:
+			self.output.write(result.encode("utf8"))
 
 class Cache:
 	"""A simple self-cleaning cache."""
