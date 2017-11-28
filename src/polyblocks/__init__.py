@@ -104,6 +104,7 @@ class Block( object ):
 		self.input  = []
 		self.output = []
 		self.errors = []
+		self.meta   = {}
 		self.path   = path
 		self.attributes = attributes
 		self.init()
