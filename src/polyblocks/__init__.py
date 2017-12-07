@@ -445,9 +445,9 @@ class Parser( object ):
 
 	def parsePath( self, path ):
 		self.onStart(path)
-		with open(path) as f:
+		with open(path, "rb") as f:
 			for l in f.readlines():
-				self.onLine(l[:-1])
+				self.onLine(l.decode("utf-8")[:-1])
 		self.onEnd()
 
 	def getBlock( self, name, data, attrs ):
