@@ -359,8 +359,6 @@ class ComponentBlock( Block ):
 		else:
 			self.output = {}
 
-
-
 	def toXML( self, doc ):
 		node  = self._xml(doc, "Component")
 		for k,v in self.output.items():
@@ -569,9 +567,12 @@ class Writer( object ):
 	def onEnd( self ):
 		result = self.document.toprettyxml("\t")
 		if IS_PYTHON3:
-			self.output.write(result)
+			if isinstance(self.output, io.TextIOBase):
+				self.output.write(result)
+			else:
+				self.output.write(result.encode("utf-8"))
 		else:
-			self.output.write(result.encode("utf8"))
+			self.output.write(result.encode("utf-8"))
 
 class Cache:
 	"""A simple self-cleaning cache."""
