@@ -356,7 +356,7 @@ class ComponentBlock( Block ):
 		lines = ["\t" + _ for _ in lines if _.strip()]
 		if lines:
 			if hjson:
-				text        = "{" + "\n".join(lines) + "}"
+				text        = "{\n" + "\n".join(lines) + "\n}"
 				self.output = hjson.loads(text)
 			else:
 				raise Exception("{0} requires the `hjson` module to parse configuration".format(self.__class__.__name__))
