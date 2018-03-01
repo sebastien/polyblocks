@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#encoding: UTF-8
 from __future__ import print_function
 import io, os, sys, re, argparse, xml.dom, time, pickle, hashlib, stat, json
 
@@ -40,12 +41,26 @@ except ImportError as e:
 	hjson = None
 
 DOM         = xml.dom.getDOMImplementation()
-RE_BLOCK    = re.compile("^@(\w+)+\s*('[^']+'|\"[^\"]+\"|[^\+]*)\s*(\+[\w\d_-]+\s*)*$")
+# A block is like
+# @NAME VALUE {ATTR=VALUE,ATTR=VALUE} -> NAME = NAME
+RE_BLOCK    = re.compile(
+	"^@(\w+)(\s+.*)?\s*$"
+)
 RE_CONTENT  = re.compile("^(\t(.*)|\s*)$")
 RE_COMMENT  = re.compile("^#.*$")
+RE_INPUT_OUTPUT = re.compile("\<\-|\-\>|←|→")
+RE_INPUT        = re.compile("\<\-|←")
+RE_OUTPUT       = re.compile("\-\>|→")
 DEFAULT_XSL = "block.xsl"
 VERSION_KEY = "{0}-{1}-{2}".format(sys.version_info.major, sys.version_info.minor, sys.version_info.micro)
 IS_PYTHON3  = sys.version_info.major > 2
+
+IO_NORMALIZE = {
+	"->" : "->",
+	"→"  : "->",
+	"<-" : "<-",
+	"←"  : "<-",
+}
 
 if IS_PYTHON3:
 	unicode = str
@@ -85,6 +100,67 @@ def parseAttributes( text ):
 		result.append((name.strip(), value))
 	return result
 
+def parseBinding( text ):
+	"""Parses a binding string in the form of
+
+	```
+	NAME
+	NAME.NAME
+	NAME.NAME <- NAME
+	NAME.NAME -> NAME.NAME
+	```
+
+	This returns `{direction,internal,external}
+	"""
+	o = 0
+	l = []
+	d = None
+	for step in RE_INPUT_OUTPUT.finditer(text):
+		sd = IO_NORMALIZE[step.group()]
+		assert (d is None or sd == d)
+		d = sd
+		if step.start(0) != o:
+			l.append(text[o:step.start(0)].strip())
+		o = step.end(0)
+	if o < len(text):
+		l.append(text[o:].strip())
+	return {
+		"direction":"input" if d == "<-" else "output",
+		"internal" : l[0] if len(l) == 2 else l[0],
+		"external" : l[1] if len(l) == 2 else l[0],
+	}
+
+def parseDeclaration( text ):
+	data    = None
+	attrs   = {}
+	binding = None
+	if not text:
+		return (data, attrs, binding)
+	i = text.find("{")
+	m = RE_INPUT_OUTPUT.search(text)
+	j = m.start(0) if m else -1
+	if i >= 0:
+		if j >=0 and j and j < i:
+			pass
+		else:
+			ie   = text.find("}", i)
+			if ie > i:
+				data = text[:i]
+				attrs = parseAttributes(text[i+1:ie]) or ()
+				attrs = dict((_[0], _[1]) for _ in attrs)
+				m = RE_INPUT_OUTPUT.search(text, ie + 1)
+				j = m.start(0) if m else -1
+			else:
+				pass
+	if j >= 0:
+		binding = parseBinding(text[m.start(0):])
+		data = data or text[:j]
+	data = data or text
+	data = data.strip()
+	if data and data[0] == data[-1] and data[0] in '"\'':
+		data = data[1:-1]
+	return (data, attrs, binding)
+
 # -----------------------------------------------------------------------------
 #
 # BASIC BLOCK
@@ -96,7 +172,7 @@ class Block( object ):
 	KEY = ["name", "data", "attributes", "path"]
 	IDS = 0
 
-	def __init__( self, name=None, data=None, attributes=None, path=None ):
+	def __init__( self, name=None, data=None, attributes=None, binding=None, path=None ):
 		super(Block, self).__init__()
 		self.id     = self.__class__.IDS ; self.__class__.IDS += 1
 		self.name   = name
@@ -107,6 +183,7 @@ class Block( object ):
 		self.meta   = {}
 		self.path   = path
 		self.attributes = attributes
+		self.binding  = binding
 		self.init()
 
 	def key( self ):
@@ -147,7 +224,7 @@ class Block( object ):
 	def _xmlAttrs( self, node, attributes=None ):
 		if attributes is None:
 			attributes = self.attributes
-		if isinstance(attributes, list) or isinstance(attributes, tuple):
+		elif isinstance(attributes, list) or isinstance(attributes, tuple):
 			for name, value in attributes:
 				node.setAttribute(name, "" + (value or ""))
 		else:
@@ -165,6 +242,14 @@ class Block( object ):
 			[self._xmlAdd(doc, node, _) for _ in child]
 		elif child:
 			node.appendChild(child)
+		return node
+
+	def _xmlBindingAttrs( self, node ):
+		if not node: return node
+		if self.binding:
+			for k,v in self.binding.items():
+				if v:
+					node.setAttribute("binding-" + k, v)
 		return node
 
 # -----------------------------------------------------------------------------
@@ -265,7 +350,7 @@ class PamlBlock( Block ):
 		parser.parseString(text)
 		node.appendChild(fragment)
 		node.appendChild(source)
-		return self._xmlAttrs(node)
+		return self._xmlBindingAttrs(self._xmlAttrs(node))
 
 class JSXMLBlock( PamlBlock ):
 
@@ -316,6 +401,7 @@ class Sugar2Block( Block ):
 		# testing is enabled.
 		if self.path.endswith(".unit.block"):
 			options.append("-Dtests")
+		assert sugar, "Sugar module not defined"
 		self.output.append(sugar.process(text, 2, options))
 		module  = deparse.core.Sugar().parseText(text)
 		res     = deparse.core.Resolver()
@@ -334,7 +420,7 @@ class Sugar2Block( Block ):
 		self.imports = subimported + imported
 
 	def toXML( self, document ):
-		return self._xmlAttrs(self._xml(document, "Code",
+		return self._xmlBindingAttrs(self._xmlAttrs(self._xml(document, "Code",
 			{"language":"sugar2"},
 			self._xml(document, "imports", [
 				self._xml(document, "module", dict(name=_[0], path=self.relpath(_[1]))) for _ in self.imports
@@ -342,7 +428,7 @@ class Sugar2Block( Block ):
 			self._xml(document, "source", document.createCDATASection(self.getInput())),
 			self._xml(document, "script", document.createCDATASection(self.getOutput())),
 			self._xml(document, "errors", document.createCDATASection(self.getErrors()))
-		))
+		)))
 
 class ComponentBlock( Block ):
 
@@ -352,7 +438,8 @@ class ComponentBlock( Block ):
 		lines = ["\t" + _ for _ in lines if _.strip()]
 		if lines:
 			if hjson:
-				text        = "{" + "\n".join(lines) + "}"
+				text        = "{\n" + "\n".join(lines) + "\n}"
+				# TODO: Catch errors
 				self.output = hjson.loads(text)
 			else:
 				raise Exception("{0} requires the `hjson` module to parse configuration".format(self.__class__.__name__))
@@ -363,7 +450,7 @@ class ComponentBlock( Block ):
 		node  = self._xml(doc, "Component")
 		for k,v in self.output.items():
 			node.appendChild(self._xmlAttrs(self._xml(doc, "data"), {"name":k, "value":v if type(v) in (str,unicode) else json.dumps(v)}))
-		return self._xmlAttrs(node, {"type":self.data})
+		return self._xmlBindingAttrs(self._xmlAttrs(node, {"type":self.data}))
 
 class PCSSBlock( Block ):
 
@@ -394,7 +481,7 @@ class ShaderBlock( Block ):
 	def toXML( self, doc ):
 		node  = self._xml(doc, "Shader")
 		node.appendChild(self._xml(doc, "source", doc.createCDATASection(self.output)))
-		return self._xmlAttrs(node, {"name":self.data or "shader-{0}".format(self.id)})
+		return self._xmlBindingAttrs(self._xmlAttrs(node, {"name":self.data or "shader-{0}".format(self.id)}))
 
 # -----------------------------------------------------------------------------
 #
@@ -448,12 +535,12 @@ class Parser( object ):
 				self.onLine(l.decode("utf-8")[:-1])
 		self.onEnd()
 
-	def getBlock( self, name, data, attrs ):
+	def getBlock( self, name, data, attrs, binding ):
 		block_class = self.BLOCKS.get(name)
 		if not block_class:
 			raise Exception("No block defined for tag: `@{0}` at line {1} in {2}".format(name, self.line, self.path))
 		else:
-			return block_class(name, data, attrs, self.path)
+			return block_class(name=name, data=data, attributes=attrs, binding=binding, path=self.path)
 
 	# =========================================================================
 	# PARSING EVENTS
@@ -471,14 +558,10 @@ class Parser( object ):
 		line = line.decode("utf8") if isinstance(line, bytes) else line
 		m = RE_BLOCK.match(line)
 		if m:
-			name   = m.group(1)
-			data   = (m.group(2) or "").strip()
-			attrs  = m.group(3) or ""
-			if data and data[0] == data[-1] and data[0] in '"\'':
-				data = data[1:-1]
-			attrs = (_.strip().split("=",1) for _ in attrs.split() if _.strip())
-			attrs = [(_[0][1:], _[1] if len(_) > 1 else "true") for _ in attrs]
-			block = self.getBlock(name, data, attrs)
+			name  = m.group(1)
+			decl  = m.group(2)
+			data, attrs, binding = parseDeclaration(decl)
+			block = self.getBlock(name, data, attrs, binding)
 			self._flushLines()
 			self.block = block
 			if block not in self.blocks:
