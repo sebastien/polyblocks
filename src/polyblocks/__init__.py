@@ -187,7 +187,11 @@ class Block( object ):
 		self.init()
 
 	def key( self ):
-		return json.dumps([getattr(self, _) for _ in self.KEY])
+		return json.dumps(dict(
+			version    = VERSION_KEY,
+			type       = self.__class__.__name__,
+			attributes = [getattr(self, _) for _ in self.KEY]
+		))
 
 	def init( self ):
 		pass
@@ -675,7 +679,7 @@ class Cache:
 
 	def key( self, text, block ):
 		"""Gets the key for the given text as processed by the given block."""
-		text = block.__class__.__name__ + VERSION_KEY + (text or "")
+		return self.hash(text) + self.hash(block.key())
 		return self.hash(text)
 
 	def hash( self, text ):
