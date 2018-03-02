@@ -219,6 +219,8 @@ class Block( object ):
 		l = [
 			"@{0} {1}".format(self.name, self.data)
 		] + self._lines[1:]
+		while l and not l[-1].strip():
+			l.pop()
 		return "\n".join(l)
 
 	def getErrors( self ):
