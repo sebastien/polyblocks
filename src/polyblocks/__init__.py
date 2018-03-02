@@ -363,7 +363,7 @@ class PamlBlock( Block ):
 		self.title = title_attrs[0].strip()
 		self.attrs = {}
 		if len(title_attrs) == 2:
-			self.attrs.merge(parseAttributes(title_attrs[1]))
+			self.attrs.update(parseAttributes(title_attrs[1]))
 
 	def toXML( self, doc, name="Paml"):
 		text     = "\n".join(self.input)
