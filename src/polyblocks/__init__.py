@@ -73,11 +73,18 @@ def parseAttributes( text ):
 	offset = 0
 	result = []
 	while offset < len(text):
-		equal  = text.find("=", offset)
-		assert equal >= 0, "Include subsitution without value: {0}".format(text)
-		name   = text[offset:equal]
-		offset = equal + 1
-		if offset == len(text):
+		equal = text.find("=", offset)
+		if equal == -1:
+			comma = text.find(",",offset)
+			if comma == -1:
+				sep = len(text)
+			else:
+				sep = comma
+		else:
+			sep = equal
+		name   = text[offset:sep]
+		offset = sep + 1
+		if offset >= len(text):
 			value = ""
 		elif text[offset] in  '\'"':
 			# We test for quotes and escape it
@@ -97,7 +104,7 @@ def parseAttributes( text ):
 			else:
 				value  = text[offset:comma]
 				offset = comma + 1
-		result.append((name.strip(), value))
+		result.append((name.strip(), value or "true"))
 	return result
 
 def parseBinding( text ):
@@ -184,6 +191,7 @@ class Block( object ):
 		self.path   = path
 		self.attributes = attributes
 		self.binding  = binding
+		self._lines   = []
 		self.init()
 
 	def key( self ):
@@ -196,11 +204,22 @@ class Block( object ):
 	def init( self ):
 		pass
 
+	def _addLines( self, lines ):
+		self._lines += lines
+		return self
+
 	def getInput( self ):
 		return "\n".join(self.input)
 
 	def getOutput( self ):
 		return "\n".join(self.output)
+
+	def getSource( self ):
+		# NOTE: We don't include the attributes
+		l = [
+			"@{0} {1}".format(self.name, self.data)
+		] + self._lines[1:]
+		return "\n".join(l)
 
 	def getErrors( self ):
 		return "\n".join(self.errors)
@@ -255,6 +274,11 @@ class Block( object ):
 				if v:
 					node.setAttribute("binding-" + k, v)
 		return node
+
+	def _xmlSource( self, doc ):
+		src = doc.createElement("source")
+		src.appendChild(doc.createTextNode(self.getSource()))
+		return src
 
 # -----------------------------------------------------------------------------
 #
@@ -454,6 +478,8 @@ class ComponentBlock( Block ):
 		node  = self._xml(doc, "Component")
 		for k,v in self.output.items():
 			node.appendChild(self._xmlAttrs(self._xml(doc, "data"), {"name":k, "value":v if type(v) in (str,unicode) else json.dumps(v)}))
+		if "source" in self.attributes:
+			node.appendChild(self._xmlSource(doc))
 		return self._xmlBindingAttrs(self._xmlAttrs(node, {"type":self.data}))
 
 class PCSSBlock( Block ):
@@ -521,6 +547,7 @@ class Parser( object ):
 	def __init__( self ):
 		self.block  = None
 		self.lines  = None
+		self.rawLines = None
 		self.blocks = []
 		self.path   = None
 		self.line   = 0
@@ -535,8 +562,10 @@ class Parser( object ):
 	def parsePath( self, path ):
 		self.onStart(path)
 		with open(path, "rb") as f:
+			o = 0
 			for l in f.readlines():
-				self.onLine(l.decode("utf-8")[:-1])
+				self.onLine(l.decode("utf-8")[:-1], o)
+				o += len(l)
 		self.onEnd()
 
 	def getBlock( self, name, data, attrs, binding ):
@@ -554,9 +583,10 @@ class Parser( object ):
 		self.line  = 0
 		self.path  = path
 		self.lines = []
+		self.rawLines = []
 		self.block = None
 
-	def onLine( self, line ):
+	def onLine( self, line, offset=-1 ):
 		# NOTE: We need to make sure the input is unicode
 		self.line += 1
 		line = line.decode("utf8") if isinstance(line, bytes) else line
@@ -568,12 +598,14 @@ class Parser( object ):
 			block = self.getBlock(name, data, attrs, binding)
 			self._flushLines()
 			self.block = block
+			block._addLines([line])
 			if block not in self.blocks:
 				self.blocks.append(block)
 			return m
 		m = RE_CONTENT.match(line)
 		if m:
 			self.lines.append(m.group(2) or "")
+			self.rawLines.append(line)
 			return m
 		m = RE_COMMENT.match(line)
 		if m:
@@ -589,6 +621,7 @@ class Parser( object ):
 
 	def _flushLines( self ):
 		if self.block:
+			self.block._addLines(self.rawLines)
 			text = u"\n".join(self.lines)
 			if self.cache.has(text, self.block):
 				i = self.blocks.index(self.block)
@@ -599,6 +632,7 @@ class Parser( object ):
 				if text:
 					self.cache.set(text, self.block, self.block)
 			self.lines = []
+			self.rawLines = []
 			self.block = None
 
 # -----------------------------------------------------------------------------
@@ -609,9 +643,10 @@ class Parser( object ):
 
 class Writer( object ):
 
-	def __init__( self, xsl=DEFAULT_XSL ):
+	def __init__( self, xsl=DEFAULT_XSL, pretty=False ):
 		self.dom = xml.dom.getDOMImplementation()
 		self.xsl = xsl
+		self.pretty = pretty
 
 	def write( self, blocks, output, path=None ):
 		if isinstance(blocks, Parser): blocks = blocks.blocks
@@ -652,7 +687,7 @@ class Writer( object ):
 			return self.content
 
 	def onEnd( self ):
-		result = self.document.toprettyxml("\t")
+		result = self.document.toprettyxml("\t") if self.pretty else self.document.toxml()
 		if IS_PYTHON3:
 			if isinstance(self.output, io.TextIOBase):
 				self.output.write(result)
@@ -758,6 +793,8 @@ def command( args, name="polyblocks" ):
 			help='The .block files to process')
 	oparser.add_argument("--list", action="store_true",
 			help='List the available block types')
+	oparser.add_argument("-p", "--pretty", action="store_true",
+			help='Pretty prints the XML output')
 	# We create the parse and register the options
 	args = oparser.parse_args(args=args)
 	out  = sys.stdout
@@ -766,7 +803,7 @@ def command( args, name="polyblocks" ):
 			out.write("@{0:10s} {1}\n".format(key, Parser.BLOCKS[key].description))
 	elif args.files:
 		parser = Parser()
-		writer = Writer()
+		writer = Writer(pretty=args.pretty)
 		for p in args.files:
 			parser.parsePath(p)
 		writer.write(parser, sys.stdout)
