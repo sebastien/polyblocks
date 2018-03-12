@@ -183,7 +183,7 @@ class Block( object ):
 		super(Block, self).__init__()
 		self.id     = self.__class__.IDS ; self.__class__.IDS += 1
 		self.name   = name
-		self.data   = data
+		self.data   = data or ""
 		self.input  = []
 		self.output = []
 		self.errors = []
@@ -359,7 +359,7 @@ class PamlBlock( Block ):
 
 	def parseLines( self, lines ):
 		super(PamlBlock, self).parseLines(lines)
-		title_attrs = self.data.split("+",1)
+		title_attrs = (self.data or "").split("+",1)
 		self.title = title_attrs[0].strip()
 		self.attrs = {}
 		if len(title_attrs) == 2:

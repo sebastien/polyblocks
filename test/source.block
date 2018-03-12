@@ -1,0 +1,5 @@
+@component a/b {source}
+	
+@component a/b {source}
+	one: 1
+	two: 1
