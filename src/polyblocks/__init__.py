@@ -65,6 +65,12 @@ IO_NORMALIZE = {
 if IS_PYTHON3:
 	unicode = str
 
+def ensure_string(value):
+	if isinstance(value, bytes):
+		return value.decode("utf-8")
+	else:
+		return value
+
 # TODO: Capture stderr from process
 
 def parseAttributes( text ):
@@ -490,7 +496,7 @@ class PCSSBlock( Block ):
 
 	def parseLines( self, lines ):
 		super(PCSSBlock, self).parseLines(lines)
-		res = pcss.process("\n".join(lines) + "\n")
+		res = ensure_string(pcss.process("\n".join(lines) + "\n"))
 		self.output.append(res)
 
 	def toXML( self, document ):
