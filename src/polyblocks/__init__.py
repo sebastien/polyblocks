@@ -379,6 +379,8 @@ class PamlBlock( Block ):
 		parser = paml.engine.Parser()
 		if self.title:
 			node.setAttribute("title", self.title)
+		for k,v in self.attributes.items():
+			node.setAttribute(k, v)
 		for k,v in self.attrs.items():
 			node.setAttribute(k, v)
 		parser._formatter = paml.engine.XMLFormatter(doc, fragment)
@@ -456,8 +458,10 @@ class Sugar2Block( Block ):
 		self.imports = subimported + imported
 
 	def toXML( self, document ):
+		attr = {"language":"sugar2"}
+		attr.update(self.attributes)
 		return self._xmlBindingAttrs(self._xmlAttrs(self._xml(document, "Code",
-			{"language":"sugar2"},
+			attr,
 			self._xml(document, "imports", [
 				self._xml(document, "module", dict(name=_[0], path=self.relpath(_[1]))) for _ in self.imports
 			]),
