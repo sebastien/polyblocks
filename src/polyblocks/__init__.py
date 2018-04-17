@@ -492,7 +492,7 @@ class ComponentBlock( Block ):
 			node.appendChild(self._xmlAttrs(self._xml(doc, "data"), {"name":k, "value":v if type(v) in (str,unicode) else json.dumps(v)}))
 		if "source" in self.attributes:
 			node.appendChild(self._xmlSource(doc))
-		return self._xmlBindingAttrs(self._xmlAttrs(node, {"type":self.data}))
+		return self._xmlBindingAttrs(self._xmlAttrs(self._xmlAttrs(node, self.attributes), {"type":self.data}))
 
 class PCSSBlock( Block ):
 
@@ -604,6 +604,7 @@ class Parser( object ):
 		line = line.decode("utf8") if isinstance(line, bytes) else line
 		m = RE_BLOCK.match(line)
 		if m:
+			# This is where we're extracting the name and attributes
 			name  = m.group(1)
 			decl  = m.group(2)
 			data, attrs, binding = parseDeclaration(decl)
