@@ -255,7 +255,7 @@ class Block( object ):
 	def _xmlAttrs( self, node, attributes=None ):
 		if attributes is None:
 			attributes = self.attributes
-		elif isinstance(attributes, list) or isinstance(attributes, tuple):
+		if isinstance(attributes, list) or isinstance(attributes, tuple):
 			for name, value in attributes:
 				node.setAttribute(name, "" + (value or ""))
 		else:
@@ -353,7 +353,6 @@ class TextoBlock( Block ):
 		parser = texto.parser.Parser(self.path, document=doc, root=node)
 		parser.parse(text, offsets=False)
 		return self._xmlAttrs(node)
-
 
 class PamlBlock( Block ):
 
