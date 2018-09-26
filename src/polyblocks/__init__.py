@@ -433,7 +433,7 @@ class Sugar2Block( Block ):
 		sg_backend = os.environ["SUGAR_BACKEND"] if "SUGAR_BACKEND" in os.environ else "es"
 		sg_modules = os.environ["SUGAR_MODULES"] if "SUGAR_MODULES" in os.environ else "umd"
 		text = "@feature sugar\n" + "\n".join(lines) + "\n"
-		options = ["-Llib/sjs", "-l" + sg_backend, "-D" + sg_modules]
+		options = ["-Llib/sjs", "-cl" + sg_backend, "-D" + sg_modules]
 		# We have a special handling for `.unit.block`: the unit
 		# testing is enabled.
 		if self.path.endswith(".unit.block"):
