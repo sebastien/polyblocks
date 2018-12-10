@@ -239,6 +239,9 @@ class Block( object ):
 	def toXML( self, doc ):
 		pass
 
+	def onWrite( self, writer:"Writer"):
+		pass
+
 	def relpath( self, path ):
 		if self.path:
 			a = os.path.dirname(os.path.abspath(self.path))
@@ -524,6 +527,13 @@ class ShaderBlock( Block ):
 		node.appendChild(self._xml(doc, "source", doc.createCDATASection(self.output)))
 		return self._xmlBindingAttrs(self._xmlAttrs(node, {"name":self.data or "shader-{0}".format(self.id)}))
 
+class StyleBlock( Block ):
+
+	description = "Changes the stylesheet"
+
+	def onWrite( self, writer ):
+		writer.setStyleSheet(self.data)
+
 # -----------------------------------------------------------------------------
 #
 # PARSER
@@ -545,6 +555,7 @@ class Parser( object ):
 		"tags"      : TagsBlock,
 		"component" : ComponentBlock,
 		"shader"    : ShaderBlock,
+		"style"     : StyleBlock,
 		"author"    : MetaBlock,
 		"texto"     : TextoBlock,
 		"paml"      : PamlBlock,
@@ -658,6 +669,7 @@ class Writer( object ):
 	def __init__( self, xsl=DEFAULT_XSL, pretty=False ):
 		self.dom = xml.dom.getDOMImplementation()
 		self.xsl = xsl
+		self.xslPI = None
 		self.pretty = pretty
 
 	def write( self, blocks, output, path=None ):
@@ -666,6 +678,16 @@ class Writer( object ):
 		for block in blocks:
 			self.onBlock(block)
 		self.onEnd()
+
+	# =========================================================================
+	# API
+	# =========================================================================
+
+	def setStyleSheet( self, path:str ):
+		assert self.xslPI, "The writer does not have an XSL processing instruction"
+		path=path.strip()
+		assert path, "No stylesheet path given"
+		self.xslPI.data = 'type="text/xsl" media="screen" href="{0}"'.format(path)
 
 	# =========================================================================
 	# WRITING EVENTS
@@ -677,10 +699,8 @@ class Writer( object ):
 		self.meta     = self.document.createElementNS(None, "Meta") ; self.root.appendChild(self.meta)
 		self.content  = self.root
 		if self.xsl:
-			self.document.appendChild(
-				self.document.createProcessingInstruction("xml-stylesheet",
-				'type="text/xsl" media="screen" href="{0}"'.format(self.xsl)
-			))
+			self.xslPI = self.document.createProcessingInstruction("xml-stylesheet", 'type="text/xsl" media="screen" href="{0}"'.format(self.xsl))
+			self.document.appendChild(self.xslPI)
 
 		self.document.appendChild(self.root)
 		self.output   = output
@@ -688,6 +708,7 @@ class Writer( object ):
 
 	def onBlock( self, block ):
 		assert block
+		block.onWrite(self)
 		node = block.toXML(self.document)
 		if node:
 			self.getXMLRoot(block).appendChild(node)
@@ -824,4 +845,4 @@ if __name__ == "__main__":
 	import sys
 	command(sys.argv[1:])
 
-# EOF
+# EOF - vim: ts=4 sw=4 noet
