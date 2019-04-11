@@ -2,6 +2,9 @@
 #encoding: UTF-8
 from __future__ import print_function
 import io, os, sys, re, argparse, xml.dom, time, pickle, hashlib, stat, json
+from typing import List
+
+# TODO: Proper DESCRIPTION and USAGE for blocks
 
 __doc__ = """
 Blocks are files that embed multiple languages together in one interactive
@@ -51,7 +54,7 @@ RE_COMMENT  = re.compile("^#.*$")
 RE_INPUT_OUTPUT = re.compile("\<\-|\-\>|←|→")
 RE_INPUT        = re.compile("\<\-|←")
 RE_OUTPUT       = re.compile("\-\>|→")
-DEFAULT_XSL = "block.xsl"
+DEFAULT_XSL = "lib/xsl/polyblock.xsl"
 VERSION_KEY = "{0}-{1}-{2}".format(sys.version_info.major, sys.version_info.minor, sys.version_info.micro)
 IS_PYTHON3  = sys.version_info.major > 2
 
@@ -302,6 +305,23 @@ class Block( object ):
 class MetaBlock( Block ):
 
 	description = "Meta information [abstract]"
+	FORMAT      = "@meta TEXT"
+
+	def toXML( self, doc ):
+		return self._xml(doc, self.name, self.data)
+
+class SymbolBlock( Block ):
+
+	description = "Meta information [abstract]"
+	FORMAT      = "@symbol TYPE ID DESCRIPTION?"
+
+	def toXML( self, doc ):
+		return self._xml(doc, self.name, self.data)
+
+class AnchorBlock( Block ):
+
+	description = "Defines an anchor that can be reference"
+	FORMAT      = "@anchor ID"
 
 	def toXML( self, doc ):
 		return self._xml(doc, self.name, self.data)
@@ -315,12 +335,13 @@ class TagsBlock( MetaBlock ):
 			self._xml(doc, "tag", _.strip().lower()) for _ in self.data.split() if _.strip()
 		]) if self.data else None
 
-class TitleBlock( MetaBlock ):
+class CreatedBlock( MetaBlock ):
 
-	description = "Block title"
+	description = "Created YYYY-MM-DD title"
 
-	def toXML( self, doc ):
-		return self._xml(doc, "title", self.data.strip()) if self.data else None
+class UpdatedBlock( MetaBlock ):
+
+	description = "Updated YYYY-MM-DD title"
 
 class HeadingBlock( Block ):
 
@@ -342,6 +363,16 @@ class ImportBlock( MetaBlock ):
 			), _.strip()) for _ in self.data.split() if _.strip()
 		]) if self.data else None
 
+
+class EmbedBlock( Block ):
+
+	description = "Embed verbatim code/text"
+
+	def toXML( self, doc ):
+		text   = "\n".join(self.input)
+		node   = self._xml(doc, "Embed", text)
+		node.setAttribute("lang", self.data)
+		return self._xmlAttrs(node)
 
 class TextoBlock( Block ):
 
@@ -540,7 +571,7 @@ class StyleBlock( Block ):
 #
 # -----------------------------------------------------------------------------
 
-class Parser( object ):
+class Parser:
 
 	BLOCKS = {
 		"title"     : MetaBlock,
@@ -551,9 +582,14 @@ class Parser( object ):
 		"h4"        : HeadingBlock,
 		"h5"        : HeadingBlock,
 		"h6"        : HeadingBlock,
+		"created"   : CreatedBlock,
+		"updated"   : UpdatedBlock,
+		"embed"     : EmbedBlock,
 		"focus"     : MetaBlock,
 		"tags"      : TagsBlock,
 		"component" : ComponentBlock,
+		"symbol"    : SymbolBlock,
+		"anchor"    : AnchorBlock,
 		"shader"    : ShaderBlock,
 		"style"     : StyleBlock,
 		"author"    : MetaBlock,
@@ -576,19 +612,18 @@ class Parser( object ):
 		self.cache  = Cache.Ensure()
 
 	def parseText( self, text, path=None ):
-		self.onStart(path)
-		for line in text.split("\n"):
-			self.onLine(line)
-		self.onEnd()
+		return self.parseIterator(text.split("\n"), path)
 
 	def parsePath( self, path ):
+		with open(path, "rt") as f:
+			return self.parseIterator(f.readlines(),path)
+
+	def parseIterator( self, iterator, path ):
 		self.onStart(path)
-		with open(path, "rb") as f:
-			o = 0
-			for l in f.readlines():
-				self.onLine(l.decode("utf-8")[:-1], o)
-				o += len(l)
+		for line in iterator:
+			self.onLine(line)
 		self.onEnd()
+		return self
 
 	def getBlock( self, name, data, attrs, binding ):
 		block_class = self.BLOCKS.get(name)
@@ -608,7 +643,7 @@ class Parser( object ):
 		self.rawLines = []
 		self.block = None
 
-	def onLine( self, line, offset=-1 ):
+	def onLine( self, line ):
 		# NOTE: We need to make sure the input is unicode
 		self.line += 1
 		line = line.decode("utf8") if isinstance(line, bytes) else line
@@ -657,6 +692,72 @@ class Parser( object ):
 			self.lines = []
 			self.rawLines = []
 			self.block = None
+
+# -----------------------------------------------------------------------------
+#
+# EMBEDDED PARSER
+#
+# -----------------------------------------------------------------------------
+
+class EmbeddedParser(Parser):
+	"""A parser that processes Polyblock syntax embedded in another language.
+	This basically rewrites (or rather, inverts) the given source code
+	so that it becomes a polyblock file."""
+
+	DELIMITERS = [
+		(["c", "cpp", "h", "js", "java"],    ["//", "*"]),
+		(["scheme", "scm", "lisp", "tlang"], [";;"]),
+		(["sh", "py", "ruby", "sjs", "sg"],  ["#"])
+	]
+
+	def __init__( self ):
+		super().__init__()
+
+	def parseText( self, text, path ):
+		return self.parseIterator(self._rewriteIterator(text.split("\n"), path), path)
+
+	def parsePath( self, path ):
+		with open(path, "rt") as f:
+			return self.parseIterator(self._rewriteIterator(f.readlines(), path), path)
+
+	def _rewriteIterator( self, iterator, path ):
+		ext        = path.rsplit(".",1)[-1]
+		if ext in (".block", ".polyblock"):
+			yield from iterator
+		else:
+			delimiters = self.getDelimitersForExt(ext)
+			previous_line = None
+			for line in iterator:
+				for delim in delimiters:
+					if line.startswith(delim):
+						line = line[len(delim):].strip()
+						if line.startswith("@hidden") or line.startswith("@hide"):
+							previous_line = "H"
+						elif line.startswith("@show"):
+							previous_line = "S"
+						elif RE_BLOCK.match(line):
+							previous_line = 'B'
+							yield line
+						elif line.startswith("#"):
+							previous_line = 'c'
+							yield line
+						else:
+							if previous_line != "H":
+								previous_line = 't'
+								yield "\t" + line
+					elif previous_line == "H":
+						pass
+					else:
+						if previous_line != 'T':
+							yield "@embed {0}".format(ext)
+						previous_line = 'T'
+						yield "\t" + line
+
+	def getDelimitersForExt( self, ext:str ) -> List[str]:
+		for exts, seps in self.DELIMITERS:
+			if ext in exts:
+				return seps
+		return []
 
 # -----------------------------------------------------------------------------
 #
@@ -738,6 +839,8 @@ class Cache:
 	def Ensure(cls):
 		if not cls.CACHE:
 			return Cache(os.path.expanduser("~/.cache/polyblocks"))
+		else:
+			return cls.CACHE
 
 	def __init__( self, path ):
 		self.root = path
@@ -778,12 +881,12 @@ class Cache:
 			pickle.dump(value, f)
 		return value
 
-	def clean( self ):
+	def clean( self, full=False ):
 		now = time.time()
 		for _ in list(os.listdir(self.root)):
 			p = os.path.join(self.root, _)
 			s = os.stat(p)[stat.ST_MTIME]
-			if now - s > 60 * 60 * 24:
+			if full or (now - s > 60 * 60 * 24):
 				os.unlink(p)
 
 	def _path( self, key ):
@@ -828,15 +931,21 @@ def command( args, name="polyblocks" ):
 			help='List the available block types')
 	oparser.add_argument("-p", "--pretty", action="store_true",
 			help='Pretty prints the XML output')
+	oparser.add_argument("-s", "--stylesheet", action="store", default=DEFAULT_XSL,
+			help='Specifies the stylesheet URL, can be empty')
+	oparser.add_argument("-cc", "--clean-cache", action="store_true",
+			help='Cleans the cache')
 	# We create the parse and register the options
 	args = oparser.parse_args(args=args)
 	out  = sys.stdout
+	if args.clean_cache:
+		Cache.Ensure().clean(full=True)
 	if args.list:
 		for key in sorted(Parser.BLOCKS):
 			out.write("@{0:10s} {1}\n".format(key, Parser.BLOCKS[key].description))
 	elif args.files:
-		parser = Parser()
-		writer = Writer(pretty=args.pretty)
+		parser = EmbeddedParser()
+		writer = Writer(xsl=args.xsl, pretty=args.pretty)
 		for p in args.files:
 			parser.parsePath(p)
 		writer.write(parser, sys.stdout)

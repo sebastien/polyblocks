@@ -4,6 +4,4 @@ if __name__ == "__main__":
 	import sys
 	# TODO: add exit code
 	command(sys.argv[1:])
-
-
-
+# EOF - vim: ts=4 sw=4 noet
