@@ -2,9 +2,14 @@
 #encoding: UTF-8
 from __future__ import print_function
 import io, os, sys, re, argparse, xml.dom, time, pickle, hashlib, stat, json
+import dateutil.parser
 from typing import List
 
 # TODO: Proper DESCRIPTION and USAGE for blocks
+
+# TODO: We might want ot have the XML block types be the same as in
+# texto (ie. all lowercase), but we then have to make sure about
+# potential namespace clashes.
 
 __doc__ = """
 Blocks are files that embed multiple languages together in one interactive
@@ -47,7 +52,7 @@ DOM         = xml.dom.getDOMImplementation()
 # A block is like
 # @NAME VALUE {ATTR=VALUE,ATTR=VALUE} -> NAME = NAME
 RE_BLOCK    = re.compile(
-	"^@(\w+)(\s+.*)?\s*$"
+	"^@(\w+)(:\w+)?(\s+.*)?\s*$"
 )
 RE_CONTENT  = re.compile("^(\t(.*)|\s*)$")
 RE_COMMENT  = re.compile("^#.*$")
@@ -374,6 +379,21 @@ class EmbedBlock( Block ):
 		node.setAttribute("lang", self.data)
 		return self._xmlAttrs(node)
 
+class DateBlock( MetaBlock ):
+
+	DESCRIPTION = "Defines a YYYY-MM-DD HH:MM:SS date"
+
+	def toXML( self, doc ):
+		date = dateutil.parser.parse(self.data)
+		return self._xml(doc, "date", {
+			"year": date.year,
+			"month": date.month,
+			"day": date.day,
+			"hour": date.hour,
+			"minute": date.minute,
+			"second": date.second,
+		}) if date else None
+
 class TextoBlock( Block ):
 
 	description = "Texto markup (Markdown-like)"
@@ -576,6 +596,7 @@ class Parser:
 	BLOCKS = {
 		"title"     : MetaBlock,
 		"subtitle"  : MetaBlock,
+		"date"      : DateBlock,
 		"h1"        : HeadingBlock,
 		"h2"        : HeadingBlock,
 		"h3"        : HeadingBlock,
@@ -623,7 +644,7 @@ class Parser:
 		for line in iterator:
 			self.onLine(line)
 		self.onEnd()
-		return self
+		return self.blocks
 
 	def getBlock( self, name, data, attrs, binding ):
 		block_class = self.BLOCKS.get(name)
@@ -650,10 +671,16 @@ class Parser:
 		m = RE_BLOCK.match(line)
 		if m:
 			# This is where we're extracting the name and attributes
-			name  = m.group(1)
-			decl  = m.group(2)
-			data, attrs, binding = parseDeclaration(decl)
-			block = self.getBlock(name, data, attrs, binding)
+			block_type           = m.group(1)
+			block_type_override  = m.group(2)
+			block_decl           = m.group(3)
+			data, attrs, binding = parseDeclaration(block_decl)
+			# This supports the alterate syntax @NAME:TYPE instead of @TYPE
+			if block_type_override:
+				block_name = block_type
+				block_type = block_type_override[1:]
+				attrs["name"] = block_name
+			block = self.getBlock(block_type, data, attrs, binding)
 			self._flushLines()
 			self.block = block
 			block._addLines([line])
@@ -722,7 +749,7 @@ class EmbeddedParser(Parser):
 
 	def _rewriteIterator( self, iterator, path ):
 		ext        = path.rsplit(".",1)[-1]
-		if ext in (".block", ".polyblock"):
+		if ext in ("block", "polyblock"):
 			yield from iterator
 		else:
 			delimiters = self.getDelimitersForExt(ext)
@@ -765,20 +792,46 @@ class EmbeddedParser(Parser):
 #
 # -----------------------------------------------------------------------------
 
-class Writer( object ):
+class Writer:
 
 	def __init__( self, xsl=DEFAULT_XSL, pretty=False ):
-		self.dom = xml.dom.getDOMImplementation()
-		self.xsl = xsl
-		self.xslPI = None
-		self.pretty = pretty
+		self.output = None
+		self.path   = None
 
-	def write( self, blocks, output, path=None ):
+	def write( self, blocks, output=None, path=None ):
 		if isinstance(blocks, Parser): blocks = blocks.blocks
 		self.onStart(output, path)
 		for block in blocks:
 			self.onBlock(block)
-		self.onEnd()
+		return self.onEnd()
+
+	# =========================================================================
+	# WRITING EVENTS
+	# =========================================================================
+
+	def onStart( self, output, path=None ):
+		pass
+
+	def onBlock( self, block ):
+		pass
+
+	def onEnd( self ):
+		pass
+
+# -----------------------------------------------------------------------------
+#
+# XML WRITER
+#
+# -----------------------------------------------------------------------------
+
+class XMLWriter( Writer ):
+
+	def __init__( self, xsl=DEFAULT_XSL, pretty=False ):
+		super().__init__(self)
+		self.dom = xml.dom.getDOMImplementation()
+		self.xsl = xsl
+		self.xslPI = None
+		self.pretty = pretty
 
 	# =========================================================================
 	# API
@@ -829,6 +882,74 @@ class Writer( object ):
 				self.output.write(result.encode("utf-8"))
 		else:
 			self.output.write(result.encode("utf-8"))
+
+# -----------------------------------------------------------------------------
+#
+# JSON WRITER
+#
+# -----------------------------------------------------------------------------
+
+class JSONWriter( Writer ):
+
+	def __init__( self, pretty=False ):
+		self.result = None
+		self.pretty = False
+		self.dom = xml.dom.getDOMImplementation()
+
+	def onStart( self, output, path=None ):
+		self.output   = output
+		self.document = self.dom.createDocument(None, None, None)
+		self.path     = path
+		self.result   = []
+
+	def onBlock( self, block ):
+		assert block
+		block.onWrite(self)
+		node = block.toXML(self.document)
+		if node:
+			self.result.append(self.exportXMLtoJSON(node))
+
+	def onEnd( self ):
+		if self.output:
+			json.dump(self.result, self.output)
+		return self.result
+
+	def exportXMLtoJSON( self, node ):
+		if node.nodeName == "date":
+			a = dict(node.attributes.items())
+			return {"type":"date", "value":(
+				int(a["year"]),
+				int(a["month"]),
+				int(a["day"]),
+				int(a["hour"]),
+				int(a["minute"]),
+				int(a["second"]),
+			)}
+		else:
+			return self._exportXMLtoJSON(node)
+
+	def _exportXMLtoJSON( self, node ):
+		if node.nodeType == 3:
+			return node.data
+		else:
+			res = {"type":node.nodeName}
+			if node.attributes:
+				for k,v in node.attributes.items():
+					assert k not in res, "Duplicate attribute, {0}={1} in: {2}".format(k,v,res)
+					res[k] = v
+			if node.childNodes:
+				children = [self._exportXMLtoJSON(_) for _ in  node.childNodes]
+				if len(children) == 1 and isinstance(children[0], str):
+					res["value"] = children[0]
+				else:
+					res["content"] = children
+			return res
+
+# -----------------------------------------------------------------------------
+#
+# CACHE
+#
+# -----------------------------------------------------------------------------
 
 class Cache:
 	"""A simple self-cleaning cache."""
@@ -904,7 +1025,7 @@ def process( text, path=None, xsl=DEFAULT_XSL ):
 	from the given `path`) and returns a string with the result."""
 	res = io.BytesIO()
 	parser = Parser()
-	writer = Writer(xsl=xsl)
+	writer = XMLWriter(xsl=xsl)
 	parser.parseText(text, path)
 	writer.write(parser, res)
 	res.seek(0)
@@ -929,6 +1050,8 @@ def command( args, name="polyblocks" ):
 			help='The .block files to process')
 	oparser.add_argument("--list", action="store_true",
 			help='List the available block types')
+	oparser.add_argument("-O", "--output-format", choices=("xml","json"), default="xml",
+			help='Defines the output format')
 	oparser.add_argument("-p", "--pretty", action="store_true",
 			help='Pretty prints the XML output')
 	oparser.add_argument("-s", "--stylesheet", action="store", default=DEFAULT_XSL,
@@ -945,7 +1068,11 @@ def command( args, name="polyblocks" ):
 			out.write("@{0:10s} {1}\n".format(key, Parser.BLOCKS[key].description))
 	elif args.files:
 		parser = EmbeddedParser()
-		writer = Writer(xsl=args.xsl, pretty=args.pretty)
+		writer = None
+		if args.output_format == "xml":
+			writer = XMLWriter(pretty=args.pretty)
+		elif args.output_format == "json":
+			writer = JSONWriter(pretty=args.pretty)
 		for p in args.files:
 			parser.parsePath(p)
 		writer.write(parser, sys.stdout)
