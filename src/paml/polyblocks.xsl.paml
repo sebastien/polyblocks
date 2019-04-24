@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsl::stylesheet(version="1.0",xmlns::xsl="http://www.w3.org/1999/XSL/Transform")
+	<xsl::output(method=html,encoding=UTF-8,indent=no)
+
+	<xsl::template(match="Block")
+		# We need a doctype, see http://www.microhowto.info/howto/generate_an_html5_doctype_using_xslt.html
+		# xsl::text(disable-output-escaping='yes')&lt;!DOCTYPE html&gt;&#x000A;>
+		<html
+			<head
+				<meta(charset=UTF-8)
+				<meta(name="viewport",content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no")
+				<link(href="https://sindresorhus.com/github-markdown-css/github-markdown.css",rel=stylesheet)
+				<link(href=https://prismjs.com/style.css,rel=stylesheet)
+				<link(href=https://raw.githubusercontent.com/LukeAskew/prism-github/master/prism-github.css,rel=stylesheet)
+				<title
+					<xsl::value-of(select=//Meta/title)
+					<xsl::if(test=//Meta/subtitle)
+						―
+						<xsl::value-of(select=//Meta/subtitle)
+			<body
+				<article.markdown-body(style=padding:40px;max-width:45em)
+					<xsl::apply-templates
+				<script(src=https://prismjs.com/prism.js)
+
+	# -------------------------------------------------------------------------
+	#
+	# META
+	#
+	# -------------------------------------------------------------------------
+
+	<xsl::template(match="//Meta")
+		<div.polyblock-meta-
+			<xsl::if(test="title")
+				<h1.-title
+					<xsl::value-of(select=title)
+			<xsl::if(test="subtitle")
+				<h2.-subtitle
+					<xsl::value-of(select=subtitle)
+			<xsl::if(test="tags")
+				<ul.-tags-
+					<xsl::for-each(select=tags/tag)
+						<li.-tag
+							<xsl::value-of(select=.)
+
+	# -------------------------------------------------------------------------
+	#
+	# HEADING
+	#
+	# -------------------------------------------------------------------------
+
+	<xsl::template(match="//Heading")
+		<xsl::choose
+			<xsl::when(test="@depth=0")
+				<h1
+					<xsl::value-of(select=.)
+			<xsl::when(test="@depth=1")
+				<h2
+					<xsl::value-of(select=.)
+			<xsl::when(test="@depth=2")
+				<h3
+					<xsl::value-of(select=.)
+			<xsl::when(test="@depth=3")
+				<h4
+					<xsl::value-of(select=.)
+			<xsl::when(test="@depth=4")
+				<h5
+					<xsl::value-of(select=.)
+			<xsl::when(test="@depth=5")
+				<h6
+					<xsl::value-of(select=.)
+			<xsl::otherwise
+				<h7
+					<xsl::value-of(select=.)
+
+	# -------------------------------------------------------------------------
+	#
+	# CODE
+	#
+	# -------------------------------------------------------------------------
+
+	<xsl::template(match="//Code")
+		<pre
+			<xsl::attribute(name=class)
+				<xsl::text:language->
+				<xsl::value-of(select=@lang)
+			<xsl::value-of(select=.)
+
+	<xsl::template(match="//Embed")
+		<pre
+			<xsl::attribute(name=class)
+				<xsl::text:language->
+				<xsl::value-of(select=@lang)
+			<xsl::value-of(select=.)
+
+	<xsl::template(match="//symbol")
+		<div
+			<code
+				<xsl::value-of(select=.)
+
+	# -------------------------------------------------------------------------
+	#
+	# TEXTO STYLING
+	#
+	# -------------------------------------------------------------------------
+	
+	<xsl::template(match="Texto")
+		<section
+			<xsl::call-template(name=polyblocks-attributes)
+			<xsl::apply-templates
+
+	<xsl::template(match="Texto//emphasis")
+		<em:<xsl::apply-templates:>
+
+	<xsl::template(match="Texto//term")
+		<dfn:<xsl::apply-templates:>
+
+	<xsl::template(match="Texto//strong")
+		<strong:<xsl::apply-templates:>
+
+	<xsl::template(match="Texto//variable")
+		<var
+			<xsl::attribute(name=id)
+				<xsl::value-of(select=".")
+
+	<xsl::template(match="Texto//pre")
+		<pre:<xsl::apply-templates:>
+
+	<xsl::template(match="Texto//code")
+		<code:<xsl::apply-templates:>
+
+	<xsl::template(match="Texto//link")
+		<a(target=_blank,href="{@target}")
+			<xsl::value-of(select=.)
+
+	<xsl::template(match="Texto//script")
+		<xsl::call-template(name=copy-element)
+
+	<xsl::template(match="Texto//coderef")
+		<code:<xsl::apply-templates:>
+
+	<xsl::template(match="Texto//Paragraph")
+		<p
+			<xsl::apply-templates
+
+	<xsl::template(match="Texto//Section")
+		<section
+			<a(name="{@id}")
+			<xsl::apply-templates:>
+
+	<xsl::template(match="Texto//Heading")
+		<xsl::element(name="h{count(ancestor::Section)}")
+			<xsl::apply-templates
+
+	<xsl::template(match="//Texto//List")
+		# TODO: Implemetned ordered list
+		<ul
+			<xsl::apply-templates(select="ListItem")
+		
+	<xsl::template(match="//Texto//List/ListItem")
+		<li
+			<xsl::apply-templates
+
+	# -------------------------------------------------------------------------
+	#
+	# HELPERS
+	#
+	# -------------------------------------------------------------------------
+
+	<xsl::template(name=polyblocks-attributes)
+		<xsl::for-each(select="@*")
+			<xsl::attribute(name="data-{local-name(.)}")
+				<xsl::value-of(select=".")
+
+# 	<xsl::template(name=display-element,mode=display,match="*")
+# 		<div.xml-element-
+# 			<xsl::attribute(name=data-name)
+# 				<xsl::value-of(select="name(.)")
+# 			<xsl::attribute(name=class)
+# 				<xsl::text:xml-element >
+# 				<xsl::choose
+# 					<xsl::when(test="count(*)=0 and count(text())&lt;2")
+# 						<xsl::text: as-inline>
+# 					<xsl::otherwise
+# 						<xsl::text: as-block>
+# 			<span.-start|c
+# 				<span.-syntax:<xsl::text:&lt;>
+# 				<span.-name:<xsl::value-of(select="name(.)"):>
+# 				<xsl::if(test="count(@*)&gt;0")
+# 					<span.-attributes|c
+# 						<xsl::text: >
+# 						<xsl::for-each(select="@*")
+# 							<span.xml-attribute-
+# 								<xsl::attribute(name=data-name)
+# 									<xsl::value-of(select="name(.)")
+# 								<span.-name
+# 									<xsl::value-of(select="name(.)")
+# 								<span.-syntax:<xsl::text:=>
+# 								<span.-value
+# 									<xsl::value-of(select=".")
+# 				<span.-syntax:<xsl::text:&gt;>
+# 			<span.-content
+# 				<xsl::apply-templates(select="*|text()",mode=display)
+# 			<span.-end|c
+# 				<span.-syntax:<xsl::text:&lt;/>
+# 				<span.-name:
+# 					<xsl::value-of(select="name(.)")
+# 				<span.-syntax
+# 					<xsl::text:&gt;>
+# 
+# 	<xsl::template(match="text()",mode=display)
+# 		<span.text:<xsl::value-of(select="."):>
+# 			
+# 	<xsl::template(name=copy-element)
+# 		<xsl::element(name="{local-name(.)}",namespace="{namespace-uri(.)}")
+# 			<xsl::for-each(select="@*")
+# 				<xsl::copy-of(select=.)
+# 			<xsl::apply-templates
+# 
+# 	<xsl::template(name=copy-element-ns)
+# 		#<xsl::element(name="{local-name(.)}",namespace="{substring-before(name(.),':')}")
+# 		<xsl::element(name="{local-name(.)}",namespace="{namespace-uri(.)}")
+# 			<xsl::for-each(select="@*")
+# 				#<xsl::attribute(name="{local-name(.)}",namespace="{substring-before(name(.),':')}")
+# 				<xsl::attribute(name="{local-name(.)}",namespace="{namespace-uri(.)}")
+# 					<xsl::value-of(select=".")
+# 			<xsl::apply-templates
+# 
+# 
+
+# EOF

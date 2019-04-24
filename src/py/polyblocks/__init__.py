@@ -50,7 +50,7 @@ except ImportError as e:
 
 DOM         = xml.dom.getDOMImplementation()
 # A block is like
-# @NAME VALUE {ATTR=VALUE,ATTR=VALUE} -> NAME = NAME
+# `@NAME VALUE {ATTR=VALUE,ATTR=VALUE} -> NAME = NAME`
 RE_BLOCK    = re.compile(
 	"^@(\w+)(:\w+)?(\s+.*)?\s*$"
 )
