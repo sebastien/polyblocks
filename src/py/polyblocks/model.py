@@ -1,56 +1,37 @@
 #!/usr/bin/env python3
 #encoding: UTF-8
 
-class BlockFormat:
+__doc__ = """
+Defines the content elements for blocks. These elements can be exported
+to XML or to JSON-encodable primitives.
+"""
 
-	@classmethod
-	def Validate( cls, blockFormat, block ):
+class Content:
+
+	def toXML( self ):
 		pass
 
-class Block:
-
-	TAG:str                  = ""
-	DESCRIPTION:str          = ""
-	NAME:str                 = ""
-	OUTPUT:Dict[str,str]     = {}
-	ATTRIBUTES:Dict[str,str] = {}
-
-	def __init__( self ):
-		self._name:str = ""
-		self._attributes:Dict[str,Any] = {}
-		self._lines:Line[str] = []
-
-	@property
-	def name( self ):
-		return self._name
-
-	@property
-	def meta( self ):
-		return self._name
-
-	def feed( self, line ):
-		raise Exception("By default, blocks do not accept content.")
-
-	def toXML( self ) -> Node:
+	def toPrimitive( self ):
 		pass
 
-	def toJSON( self ) -> Any:
-		pass
+class Document(Content):
+	pass
 
-class BlockInput:
+class Date(Content):
+	pass
 
-	SUCCESS  = 2
-	PARTIAL  = 1
-	FAILURE  = 0
-	EMPTY    = -1
+class Meta(Content):
+	pass
 
-	def __init__( self ):
-		self._input:Line[str]  = []
-		self._output:Line[str] = []
-		self._errors:Line[str] = []
-		self._status = EMPTY
+class Text(Content):
+	pass
 
-	def feed( self, line:str ):
-		pass
+class XMLTree(Content):
+	pass
+
+class Collection(Content):
+	# TODO: Can be used to store code and its transpiled versions, we might
+	# want to name this differently.
+	pass
 
 # EOF - vim: ts=4 sw=4 noet

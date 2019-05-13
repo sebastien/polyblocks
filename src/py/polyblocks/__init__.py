@@ -7,12 +7,12 @@
 #
 # -----------------------------------------------------------------------------
 
-def process( text, path=None, xsl=DEFAULT_XSL ):
+def process( text, path=None ):
 	"""Processes the given block `text` (which might have been extracted
 	from the given `path`) and returns a string with the result."""
 	res = io.BytesIO()
 	parser = Parser()
-	writer = XMLWriter(xsl=xsl)
+	writer = XMLWriter()
 	parser.parseText(text, path)
 	writer.write(parser, res)
 	res.seek(0)

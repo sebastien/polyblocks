@@ -20,7 +20,7 @@ def command( args, name="polyblocks" ):
 	if type(args) not in (type([]), type(())): args = [args]
 	oparser = argparse.ArgumentParser(
 		prog        = name or os.path.basename(__file__.split(".")[0]),
-		description = "Processes 
+		description = "TODO"
 	)
 	# TODO: Rework command lines arguments, we want something that follows
 	# common usage patterns.
