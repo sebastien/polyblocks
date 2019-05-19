@@ -2,6 +2,7 @@
 #encoding: UTF-8
 import os, sys, argparse
 from .parser import Cache, Parser, EmbeddedParser
+from .writer import XMLWriter, JSONWriter
 
 # FIXME: This should probably be a canonical URL
 DEFAULT_XSL = "lib/xsl/polyblocks.xsl"
@@ -14,7 +15,7 @@ DEFAULT_XSL = "lib/xsl/polyblocks.xsl"
 
 # @symbol polyblocks.command
 # @embed|shell polyblocks --help
-def command( args, name="polyblocks" ):
+def run( args, name="polyblocks" ):
 	"""Runs the polyblocks command, parsing the given arguments as command-line
 	arguments."""
 	if type(args) not in (type([]), type(())): args = [args]
@@ -47,13 +48,12 @@ def command( args, name="polyblocks" ):
 	elif args.files:
 		parser = EmbeddedParser()
 		writer = None
-		# if args.output_format == "xml":
-		# 	writer = XMLWriter(pretty=args.pretty)
-		# elif args.output_format == "json":
-		# 	writer = JSONWriter(pretty=args.pretty)
+		if args.output_format == "xml":
+			writer = XMLWriter(pretty=args.pretty)
+		elif args.output_format == "json":
+			writer = JSONWriter(pretty=args.pretty)
 		for p in args.files:
-			parser.parsePath(p)
-		#writer.write(parser, sys.stdout)
+			writer.write(parser.parsePath(p), sys.stdout)
 
 # -----------------------------------------------------------------------------
 #
@@ -63,6 +63,6 @@ def command( args, name="polyblocks" ):
 
 if __name__ == "__main__":
 	import sys
-	command(sys.argv[1:])
+	run(sys.argv[1:])
 
 # EOF - vim: ts=4 sw=4 noet

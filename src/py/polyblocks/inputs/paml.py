@@ -1,4 +1,4 @@
-from ..inputs import BlockContentInput
+from ..inputs import BlockInput
 from ..model  import Code
 
 try:
@@ -6,7 +6,7 @@ try:
 except ImportError as e:
 	paml = None
 
-class PamlInput( BlockContentInput ):
+class PamlInput( BlockInput ):
 
 	TAG         = "paml"
 	DESCRIPTION = "Parses PAML content"
