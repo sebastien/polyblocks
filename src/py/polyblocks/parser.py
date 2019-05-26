@@ -2,7 +2,9 @@
 #encoding: UTF-8
 from .model  import Block
 from .inputs import BlockHeader,BlockInput,DateInput,ListInput,TextInput,CodeInput,HeadingInput,MetaInput
-from .inputs.paml import PamlInput
+from .inputs.paml  import PamlInput
+from .inputs.hjson import HJSONInput
+from .inputs.json  import JSONInput
 from .util   import Cache
 from typing  import Optional,List,Iterable,Dict,NamedTuple,Any,Type
 import re,collections
@@ -21,24 +23,24 @@ Defines the Polyblocks parser classes.
 class Mapping:
 
 	TAGS = {
-		"title"    : HeadingInput,
-		"subtitle" : HeadingInput,
-		"date"     : DateInput,
-		"created"  : DateInput,
-		"updated"  : DateInput,
-		"tags"     : ListInput,
+		"title"    : "heading",
+		"subtitle" : "heading",
+		"date"     : "date",
+		"created"  : "date",
+		"updated"  : "date",
+		"tags"     : "list",
 
-		"embed"    : CodeInput,
+		"embed"    : "code",
 
-		"h1"       : HeadingInput,
-		"h2"       : HeadingInput,
-		"h3"       : HeadingInput,
-		"h4"       : HeadingInput,
-		"h5"       : HeadingInput,
-		"h6"       : HeadingInput,
+		"h1"       : "heading",
+		"h2"       : "heading",
+		"h3"       : "heading",
+		"h4"       : "heading",
+		"h5"       : "heading",
+		"h6"       : "heading",
 
-		"symbol"   : MetaInput,
-		"anchor"   : MetaInput,
+		"symbol"   : "meta",
+		"anchor"   : "meta",
 	}
 
 	TYPES = {
@@ -46,12 +48,18 @@ class Mapping:
 		"list"      : ListInput,
 		"text"      : TextInput,
 		"code"      : CodeInput,
+		"heading"  : HeadingInput,
 		# --
 		"texto"     : CodeInput,
+		"hjson"     : HJSONInput,
+		"json"      : JSONInput,
 		# "paml"      : PamlInput,
 		# "pcss"      : PCSSInput,
 		# "texto"     : TextoInput,
 		# "sugar"     : SugarInput,
+		# "hjson"     : HJSONInput,
+		# "json"      : JSONInput,
+		# "xml"       : XMLInput,
 	}
 
 	def __init__( self ):
@@ -60,11 +68,14 @@ class Mapping:
 	def getInputForType( self, name:str ) -> Optional[Type[BlockInput]]:
 		return self.TYPES.get(name)
 
-	def getInputForTag( self, name:str ) -> Optional[Type[BlockInput]]:
-		return self.TAGS.get(name, self.TYPES.get(name))
+	def getInputForName( self, name:str ) -> Optional[Type[BlockInput]]:
+		if name in self.TAGS:
+			return self.getInputForType(self.TAGS[name])
+		else:
+			self.TYPES.get(name)
 
 	def getInputForHeader( self, header:'BlockHeader' ) -> Optional[Type[BlockInput]]:
-		return self.getInputForTag(header.name) or self.getInputForType(header.type)
+		return self.getInputForName(header.name) or self.getInputForType(header.type)
 
 # -----------------------------------------------------------------------------
 #
@@ -79,7 +90,7 @@ class Parser:
 	which the block names and input formats are available."""
 
 	# A block header is like `@NAME:TYPE|P0,P1 CONTENT… 
-	RE_HEADER   = re.compile("^@(\w+)(:\w+)?(\|[\w\-_]+(,[\w\-_]+)?)?(\s+(.*))?\s*$")
+	RE_HEADER   = re.compile("^@(\w+)(:(\w+))?(\|[\w\-_]+(,[\w\-_]+)?)?(\s+(.*))?\s*$")
 	RE_CONTENT  = re.compile("^(\t(.*)|\s*)$")
 	RE_COMMENT  = re.compile("^#.*$")
 
@@ -131,10 +142,14 @@ class Parser:
 		match      = self.RE_HEADER.match(line)
 		# NOTE: This should probably raise a parsing error
 		if not match: return None
-		type       = match.group(2) or match.group(1)
-		name       = match.group(1) if not match.group(2) else None
-		processors = [_.strip() for _ in match.group(2)[1:].split(",")] if match.group(2) else []
-		rest       = match.group(6) or ""
+		if match.group(3):
+			name       = match.group(1)
+			type       = match.group(3)
+		else:
+			name       = None
+			type       = match.group(1)
+		processors = [_.strip() for _ in match.group(4)[1:].split(",")] if match.group(4) else []
+		rest       = match.group(7) or ""
 		# NOTE: The line is always stripped, but that might now be what
 		# we always want to do.
 		line       = rest
@@ -267,9 +282,15 @@ class Parser:
 	# =========================================================================
 
 	def _createBlockInputFromHeader( self, header:BlockHeader ) -> BlockInput:
+		if not header.name and not self.mapping.getInputForType(header.type):
+			# We might have a header with an implicit type (eg, `@title`
+			# which means `@title:heading`), so we correct it.
+			possible_type = self.mapping.getInputForName(header.type)
+			if possible_type:
+				header = BlockHeader(header.type, possible_type, *header[2:])
 		block_input = self.mapping.getInputForHeader(header)
 		if not block_input:
-			raise ValueError(f"No block defined for tag: @{header.name} at line {self.line} in {self.path}")
+			raise ValueError(f"No block defined for tag: {header} at line {self.line} in {self.path}")
 		else:
 			return block_input()
 

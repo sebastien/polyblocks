@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-from typing import Dict,List,Any,Optional,Union,TypeVar,Generic,NamedTuple
-from ..model import Date,Text,Line,Heading,Meta
+from typing import Dict,List,Any,Optional,Union,TypeVar,Generic,NamedTuple,cast
+from ..model import Date,Text,Line,Heading,Meta,Block,Data,BlockHeader
 from xml.dom import Node
 from enum import Enum
-import dateutil.parser, collections
+import dateutil.parser, collections, json
 
 T = TypeVar('T')
 
-BlockHeader:NamedTuple = collections.namedtuple('Header', 'name type processors attributes text')
 # -----------------------------------------------------------------------------
 #
 # INPUT STATUS
 #
 # -----------------------------------------------------------------------------
+
 class InputStatus(Enum):
 
 	SUCCESS  = 2
@@ -50,6 +50,7 @@ class BlockInput(Generic[T]):
 	def start( self, header:BlockHeader ):
 		self.init()
 		line = header.text
+		self.header = header
 		self.onStart(line)
 		self.inputLines.append(line)
 
@@ -71,10 +72,19 @@ class BlockInput(Generic[T]):
 
 	def end( self ) -> T:
 		self.onEnd()
-		return self.process()
+		return self.postprocess(self.process())
 
 	def process( self ) -> T:
 		raise NotImplementedError(f"Missing {self.__class__.__name__}.process implementation")
+
+	def postprocess( self, block:T ) -> T:
+		assert self.header
+		if self.header.name:
+			cast(Block,block).name = self.header.name
+		cast(Block,block).setAttributes(self.header.attributes)
+		# TODO: Set attributes
+		return block
+
 # -----------------------------------------------------------------------------
 #
 # LINE INPUT

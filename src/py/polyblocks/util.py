@@ -2,8 +2,10 @@ import pickle, os
 from   typing import Any,Dict,Optional,Union,Iterable
 # NOTE: Document is not defined there
 from   xml.dom import Node,getDOMImplementation
+from   collections import OrderedDict
 
 class XMLFactory:
+	"""Converts primitive values to XML nodes."""
 
 	INSTANCE = None
 
@@ -16,25 +18,32 @@ class XMLFactory:
 	def __init__( self ):
 		self.dom      = getDOMImplementation()
 
-	def attrs( self, node:Node, attributes:Optional[Union[Dict[str,str],Iterable[str]]]=None ):
-		if isinstance(attributes, dict):
-			for name, value in attributes.items():
-				node.setAttribute(name, "" + (value or ""))
-		elif attributes:
-			for name, value in attributes:
-				node.setAttribute(name, "" + (value or ""))
+	def isAttributeValue( self, value:Any ) -> bool:
+		return isinstance(value,str) or isinstance(value,int) or isinstance(value,float) or isinstance(value,bool) or value is None
+
+	def attrs( self, document:'Document', node:Node, attributes:Optional[Union[Dict[str,str],Iterable[str]]]=None ):
+		attrs = attributes.items() if isinstance(attributes, dict) or isinstance(attributes, OrderedDict) else enumerate(attributes)
+		for name, value in attrs:
+			if self.isAttributeValue(value):
+				node.setAttribute(name, str(value))
+			else:
+				node.appendChild(self.node( document, name, value ))
 		return node
 
 	def add( self, document, node:Node, child:Node ) -> Node:
 		if node.nodeType == Node.TEXT_NODE:
 			return node
-		elif isinstance(child, dict):
+		elif isinstance(child, dict) or isinstance(child, OrderedDict):
 			for k,v in child.items():
-				node.setAttributeNS(None, k, str(v))
+				if self.isAttributeValue(v):
+					node.setAttributeNS(None, k, str(v))
+				else:
+					node.appendChild(self.node( document, k, v ))
 		elif isinstance(child, str) or isinstance(child, str):
 			node.appendChild(document.createTextNode(child))
 		elif isinstance(child, list) or isinstance(child, tuple):
-			[self.add(document, node, _) for _ in child]
+			for i,v in enumerate(child):
+				node.appendChild(self.node( document, "item", {"index":i}, v))
 		elif child:
 			node.appendChild(child)
 		return node
@@ -44,7 +53,12 @@ class XMLFactory:
 			return document.createTextNode("".join(_ for _ in children))
 		else:
 			node = document.createElementNS(None, name)
-			return self.add(document, node, children)
+			for i,child in enumerate(children):
+				if i == 0 and isinstance(child, dict) or isinstance(child, OrderedDict):
+					self.attrs( document, node, child )
+				else:
+					self.add(document, node, child)
+			return node
 
 	def __call__( self, document:'Document', name, *children ):
 		return self.node(document, name, *children)

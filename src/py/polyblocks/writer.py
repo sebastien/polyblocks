@@ -15,8 +15,8 @@ class Writer:
 
 	def write( self, blocks:Iterable[Block], output ):
 		self.onStart(blocks, output)
-		for block in blocks:
-			self.onBlock(block, output)
+		for i,block in enumerate(blocks):
+			self.onBlock(block, i, output)
 		self.onEnd(blocks, output)
 
 	def writeBlock( self, block:Block, output ):
@@ -24,12 +24,13 @@ class Writer:
 
 class JSONWriter(Writer):
 
-
 	def onStart( self, block:Block, output ):
 		output.write("[")
 
-	def onBlock( self, block:Block, output ):
-		output.write(json.dumps(block.toPrimitive()))
+	def onBlock( self, block:Block, index:int, output ):
+		if index > 0:
+			output.write(",")
+		output.write(json.dumps(block.toPrimitive(), indent=4 if self.hasPretty else None))
 
 	def onEnd( self, block:Block, output ):
 		output.write("]")
@@ -45,7 +46,7 @@ class XMLWriter(Writer):
 
 	def onStart( self, block:Block, output ):
 		self.document = self.dom.createDocument(None, None, None)
-		self.root     = self.document.createElementNS(None, "Blocks")
+		self.root     = self.document.createElementNS(None, "block")
 		#self.meta     = self.document.createElementNS(None, "Meta")
 		#self.root.appendChild(self.meta)
 		# if self.xsl:
@@ -53,7 +54,7 @@ class XMLWriter(Writer):
 		# 	self.document.appendChild(self.xslPI)
 		self.document.appendChild(self.root)
 
-	def onBlock( self, block:Block, output ):
+	def onBlock( self, block:Block, index:int, output ):
 		node = block.toXML(self.document)
 		assert node, f"Block did not produce any XML output: {block}"
 		if node:
