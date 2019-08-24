@@ -1,0 +1,30 @@
+== TODO
+
+http://boxbase.org/entries/2019/jul/15/chu-construction/
+
+Refactoring::
+
+[ ] Overall: Rename to `polydoc`
+[ ] Overall: option to strip empty lines beginning/end of blocks
+[ ] Overall: option to put stuff aside
+
+New features::
+
+[ ] Overall: support an extension format to load and configure new block types
+[ ] Block: add a markdown and RST block type
+[ ] Lang: add the notion of variable/slot, and do ASSIGN, SOURCE and REPR/VIEW,
+    so that we can do stuff like observable.
+
+Documentation/usability::
+
+[ ] Doc: Write a proper README
+[ ] Doc: Reference for all the blocks, ideally extracted from the body
+[ ] Doc: add examples mimicking Github pages, Observable and iPython
+[ ] Tests: have one per directive, make the test an illustration of the directive
+[ ] Errors: this one is going to happen very often, so it should provide
+    a much clearer message.
+    ```
+    ValueError: No block defined for tag: Header(name=None, type='abstract', processors=[], attributes={}, text='') at line 4 in examples/xml-transform.tlang
+    ```
+
+# EOF - vim: ts=2 sw=2 et syn=texto

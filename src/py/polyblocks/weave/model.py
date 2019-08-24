@@ -140,7 +140,15 @@ class Catalogue:
 	def __repr__( self ):
 		return f"(Catalogue {' '.join(repr(_) for _ in self.collections.values())})"
 
-class Symbol:
+# -----------------------------------------------------------------------------
+#
+# DEFINITION
+#
+# -----------------------------------------------------------------------------
+
+class Definition:
+	"""A definition denotes the declaration/definition of a named element
+	within a block."""
 
 	@classmethod
 	def Normalize( cls, name:str ):
@@ -150,39 +158,39 @@ class Symbol:
 	def ID( cls, name:str ):
 		return re.sub("[^\w\d_]+", "-", name.lower().strip())
 
-	def __init__( self ):
+	def __init__( self, id:Optional[str]=None ):
 		# FIXME: The difference between id and name should be clarified
 		# and made consistent.
-		self.id     = None
+		self.id     = self.ID(id) if id is not None else id
 		self.label  = None
 		self.type   = None
 		self.parent:Optional[Block]  = None
-		self.tags   = []
+		self.tags:List[str]   = []
 		# Should be the URL of the symbol
 		self.origin = None
 
-	def __repr__( self ):
-		return f"(symbol \"{self.id}\" (@ (name \"{self.label}\")))"
-
 	def toXML( self ) -> ElementTree.Element:
 		node = ElementTree.Element("symbol")
+		assert self.id
 		node.attrib["id"] = self.id
-		node.attrib["label"] = self.label
-		node.attrib["type"] = self.type
+		if self.label:
+			node.attrib["label"] = self.label
+		if self.label:
+			node.attrib["type"] = self.type
 		if self.parent:
 			node.attrib["parent"] = self.parent.path
 		return node
 
+	def __repr__( self ):
+		return f"(#def \"{self.id}\")"
+
 class Reference:
 
 	def __init__( self, label, target=None ):
-		self.id       = target or Symbol.ID(label)
+		self.id       = target or Definition.ID(label)
 		self.label    = label
 		self.origin   = None
 		self.parent:Optional[Block]  = None
-
-	def __repr__( self ):
-		return f"(ref \"{self.id}\" (@ (label \"{self.label}\")))"
 
 	def toXML( self ) -> ElementTree.Element:
 		node = ElementTree.Element("ref")
@@ -191,6 +199,9 @@ class Reference:
 		if self.parent:
 			node.attrib["parent"] = self.parent.path
 		return node
+
+	def __repr__( self ):
+		return f"(#ref \"{self.id}\" (@ (label \"{self.label}\")))"
 
 class Block:
 	"""A block represents a structural element, such as a page, or
@@ -203,16 +214,16 @@ class Block:
 		self.children:Dict[str,Block] = {}
 		self.attributes:Dict[str,str] = {}
 		# This is meta information about the contents
-		self.symbols:Dict[str,List[Symbol]] = {}
+		self.symbols:Dict[str,List[Definition]] = {}
 		self.references:Dict[str,List[Reference]] = {}
 
 	@property
 	def path( self ) -> str:
 		return self.parent.path + "/" + self.name if self.parent else self.name
 
-	def register( self, value:Union[Symbol,Reference] ) -> Union[Symbol,Reference]:
+	def register( self, value:Union[Definition,Reference] ) -> Union[Definition,Reference]:
 		value.parent = self
-		if isinstance(value, Symbol):
+		if isinstance(value, Definition):
 			self.symbols.setdefault(value.id,[]).append(value)
 		elif isinstance(value, Reference):
 			self.references.setdefault(value.id,[]).append(value)
@@ -253,8 +264,10 @@ class Block:
 	def getStructureXML( self ) -> ElementTree.Element:
 		def make_children(block):
 			node = ElementTree.Element("block")
-			node.attrib["path"] = block.path
-			node.attrib["name"] = block.name
+			if block.path:
+				node.attrib["path"] = block.path
+			if block.name:
+				node.attrib["name"] = block.name
 			for child in block.children.values():
 				node.append(make_children(child))
 			return node
@@ -268,8 +281,10 @@ class Block:
 			node.attrib[k] = v
 		name, ext = os.path.splitext(self.name)
 		node.attrib["path"] = self.path
-		node.attrib["name"] = name
-		node.attrib["ext"]  = ext.replace(".","")
+		if name:
+			node.attrib["name"] = name
+		if ext:
+			node.attrib["ext"]  = ext.replace(".","")
 		if self.parent:
 			node.attrib["parent"]  = self.parent.path
 		# We add the structure
@@ -288,10 +303,16 @@ class Block:
 			for ref in lr:
 				n.append(ref.toXML())
 			node.append(n)
-
 		return node
 
 	def toXMLString( self ) -> str:
 		return ElementTree.tostring(self.toXML(), method="xml").decode("utf8")
+
+	def __repr__( self ):
+		attr = " @(" + " ".join(f"({key} {value})" for key,value in self.attributes.items()) + ")" if self.attributes else ""
+		chld = " " + " ".join(repr(_) for _ in self.children.values())   if self.children else ""
+		refs = " " + " ".join(repr(_) for _ in self.references.values()) if self.references else ""
+		syms = " " + " ".join(repr(_) for _ in self.symbols.values())    if self.symbols else ""
+		return f"(#block \"{self.name}\"{attr}{refs}{syms}{chld})"
 
 # EOF - vim: ts=4 sw=4 noet

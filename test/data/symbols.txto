@@ -1,0 +1,32 @@
+== Test Symbols Extraction
+
+Heading 1
+=========
+
+Heading 1.1
+-----------
+
+Here is a paragraph with a _term 1_ defined.
+
+Heading 1.2
+-----------
+
+Here is a paragraph with an [external link](http://link.1)
+
+Here is a paragraph with link to [some/page]
+
+Heading 2
+=========
+
+Heading 2.2
+-----------
+
+Here is a definition list:
+
+Term 2::
+  Definition of term 2
+
+Term 3::
+  Definition of term 3
+
+# EOF - vim: ts=2 sw=2 et
