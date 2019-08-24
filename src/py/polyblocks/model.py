@@ -60,6 +60,30 @@ class Date(Block):
 		res[self.name] = (d.year, d.month, d.day, d.hour, d.minute, d.second)
 		return res
 
+class Symbol(Block):
+
+	NAME = "symbol"
+
+	def __init__( self, name:str, type:Optional[str]=None ):
+		super().__init__({"name":name, "type":type})
+
+	def toXML( self, document ):
+		d = self.value
+		return xml(document, self.name, dict(
+			name   = d["name"],
+			type   = d["type"],
+		))
+
+	def toPrimitive( self ):
+		res = {}
+		res.update(self.attributes)
+		res.update(self.value)
+		return res
+
+class Anchor(Symbol):
+
+	NAME = "anchor"
+
 class Meta(Block):
 
 	NAME = "meta"

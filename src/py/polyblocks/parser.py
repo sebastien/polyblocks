@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #encoding: UTF-8
 from .model  import Block
-from .inputs import BlockHeader,BlockInput,DateInput,ListInput,TextInput,CodeInput,HeadingInput,MetaInput
+from .inputs import BlockHeader,BlockInput,DateInput,ListInput,TextInput,CodeInput,HeadingInput,MetaInput,SymbolInput,AnchorInput
 from .inputs.paml  import PamlInput
 from .inputs.hjson import HJSONInput
 from .inputs.json  import JSONInput
@@ -31,6 +31,8 @@ class Mapping:
 		"tags"     : "list",
 
 		"embed"    : "code",
+		"abstract" : "text",
+		"p"        : "text",
 
 		"h1"       : "heading",
 		"h2"       : "heading",
@@ -39,7 +41,8 @@ class Mapping:
 		"h5"       : "heading",
 		"h6"       : "heading",
 
-		"symbol"   : "meta",
+		"section"  : "symbol",  # TODO: Make sure it creates a symbol of type section
+		"symbol"   : "symbol",
 		"anchor"   : "meta",
 	}
 
@@ -48,7 +51,9 @@ class Mapping:
 		"list"      : ListInput,
 		"text"      : TextInput,
 		"code"      : CodeInput,
-		"heading"  : HeadingInput,
+		"heading"   : HeadingInput,
+		"symbol"    : SymbolInput,
+		"anchor"    : AnchorInput,
 		# --
 		"texto"     : CodeInput,
 		"hjson"     : HJSONInput,
@@ -92,7 +97,7 @@ class Parser:
 	# A block header is like `@NAME:TYPE|P0,P1 CONTENT… 
 	RE_HEADER   = re.compile("^@(\w+)(:(\w+))?(\|[\w\-_]+(,[\w\-_]+)?)?(\s+(.*))?\s*$")
 	RE_CONTENT  = re.compile("^(\t(.*)|\s*)$")
-	RE_COMMENT  = re.compile("^#.*$")
+	RE_COMMENT  = re.compile("^#(.*)$")
 
 	def __init__( self ):
 		# We keep a list of block inputs as well as a current
@@ -243,7 +248,7 @@ class Parser:
 		# --- BLOCK COMMENT LINE
 		m = self.RE_COMMENT.match(line)
 		if m:
-			self.onComment(m.group(2) or "", line)
+			self.onComment(m.group(1) or "", line)
 			self.line += 1
 			return True
 		else:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from typing import Dict,List,Any,Optional,Union,TypeVar,Generic,NamedTuple,cast
-from ..model import Date,Text,Line,Heading,Meta,Block,Data,BlockHeader
+from ..model import Date,Text,Line,Heading,Meta,Symbol,Anchor,Block,Data,BlockHeader
 from xml.dom import Node
 from enum import Enum
 import dateutil.parser, collections, json
@@ -128,6 +128,42 @@ class DateInput(LineInput[Date]):
 
 	def process( self ) -> Date:
 		return Date(dateutil.parser.parse(self.getInputAsString()))
+
+# -----------------------------------------------------------------------------
+#
+# SYMBOL INPUT
+#
+# -----------------------------------------------------------------------------
+
+class SymbolInput(LineInput[Symbol]):
+
+	def process( self ) -> Symbol:
+		type_name = [_.strip() for _ in self.getInputAsString().strip().split(" ",2)]
+		type:Optional[str] = None
+		name:Optional[str] = None
+		if len(type_name) == 1:
+			name = type_name[0]
+			type = None
+		elif len(type_name) == 2:
+			type, name = type_name
+		return Symbol(name or "symbol", type)
+
+# -----------------------------------------------------------------------------
+#
+# ANCHOR INPUT
+#
+# -----------------------------------------------------------------------------
+
+class AnchorInput(LineInput[Anchor]):
+
+	def process( self ) -> Anchor:
+		type_name = [_.strip() for _ in self.getInputAsString().strip().split(" ",2)]
+		if len(type_name) == 1:
+			name = type_name[0]
+			type = None
+		else:
+			type, name = type_name
+		return Anchor(name, type)
 
 # -----------------------------------------------------------------------------
 #

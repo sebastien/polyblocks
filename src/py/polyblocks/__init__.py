@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 #encoding: UTF-8
+from .parser import Cache, Parser, EmbeddedParser
+from .writer import XMLWriter, JSONWriter
+import io
 
 # -----------------------------------------------------------------------------
 #
@@ -10,11 +13,11 @@
 def process( text, path=None ):
 	"""Processes the given block `text` (which might have been extracted
 	from the given `path`) and returns a string with the result."""
-	res = io.BytesIO()
-	parser = Parser()
+	res = io.StringIO()
+	parser = EmbeddedParser()
 	writer = XMLWriter()
-	parser.parseText(text, path)
-	writer.write(parser, res)
+	parsed = parser.parseText(text, path)
+	writer.write(parsed, res)
 	res.seek(0)
 	res = res.read()
 	return res
